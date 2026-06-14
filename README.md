@@ -1,172 +1,319 @@
-Audio Deepfake Detection with XLS-R and SLS classfier
-===============
-This repository contains our implementation of the paper ["Audio Deepfake Detection with XLS-R and SLS classfier  Qishan Zhang, Shuangbing Wen, Tao Hu ACM MM 2024"]（https://openreview.net/pdf?id=acJMIXJg2u)
+# 项目上传与部署说明
 
+本文档用于说明当前仓库上传到 GitHub 的内容范围，以及后续复现、部署和继续开发时需要部署者自行准备的资源。
 
+## 一、上传目标
 
-## Installation
-First, clone the repository locally, create and activate a conda environment, and install the requirements :
-```
-$ git clone https://github.com/QiShanZhang/SLSforASVspoof-2021-DF.git
-$ cd SLSforASVspoof-2021-DF
-$ unzip fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1.zip
-$ conda create -n SLS python=3.7
-$ conda activate SLS
-$ pip install torch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1
-$ cd fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1
-$ pip install --editable ./
-$ cd ..
-$ pip install -r requirements.txt
+目标仓库：
+
+```text
+https://github.com/HANYAODONG/SLS
 ```
 
-### Local setup used in this workspace
-This workspace has no `conda` command available, so the current reproducible environment was prepared with the existing `venv`:
-```
-unzip -n fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1.zip
-venv/bin/python -m pip install torch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1
-venv/bin/python -m pip install -r requirements.txt
-venv/bin/python -m pip install --editable ./fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1
-wget -O xlsr2_300m.pt https://dl.fbaipublicfiles.com/fairseq/wav2vec/xlsr2_300m.pt
-```
+本次上传目标是保留 SLSforASVspoof-2021-DF 主模型复现工作、DF 子集评测脚本、复现报告，以及基于 DeepSeek API 的本地交互式网页助手。
 
-Verified locally:
-```
-venv/bin/python main.py --help
-venv/bin/python -c "import fairseq; model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task(['xlsr2_300m.pt']); print(type(model[0]).__name__)"
-venv/bin/python -c "import argparse, torch; from model import Model; args=argparse.Namespace(xlsr_checkpoint='xlsr2_300m.pt'); model=Model(args,'cpu').eval(); print(tuple(model(torch.zeros(1,64600)).shape))"
-```
+## 二、已上传内容
 
-Current machine note: `torch.cuda.is_available()` is `False` and `nvidia-smi` cannot communicate with the NVIDIA driver, so full training should be run after GPU access is fixed or on another CUDA-ready machine.
+### 1. 主模型复现代码
 
+已上传并保留项目主体代码，包括：
 
-## Experiments
+- `main.py`
+- `model.py`
+- `data_utils_SSL.py`
+- `evaluate_2021_DF.py`
+- `evaluate_2021_LA.py`
+- `evaluate_in_the_wild.py`
+- `eval_metrics_DF.py`
+- `eval_metric_LA.py`
+- `core_scripts/`
+- `wav2vec/`
+- `RawBoost.py`
 
-### Dataset
-Our experiments are performed on the public dataset logical access (LA) and deepfake (DF) partition of the ASVspoof 2021 dataset and In-the-Wild dataset(train on 2019 LA training and evaluate on 2021 LA and DF, In-the-Wild evaluation database).
+其中，已对 DF 评测流程做过本地复现适配，包括：
 
-The ASVspoof 2019 dataset, which can can be downloaded from [here](https://datashare.is.ed.ac.uk/handle/10283/3336).
+- 支持自定义 `xlsr2_300m.pt` 路径；
+- 支持评测 batch size 配置；
+- 支持关闭 cuDNN 以规避本机 CUDA/cuDNN 初始化问题；
+- 优化评测输出文件写入逻辑；
+- 优化 DF keys 路径识别；
+- 支持本地 `torchaudio` 优先加载音频。
 
-The ASVspoof 2021 database is released on the zenodo site.
+### 2. 复现脚本
 
-LA [here](https://zenodo.org/record/4837263#.YnDIinYzZhE)
+已上传 `scripts/` 目录，包含：
 
-DF [here](https://zenodo.org/record/4835108#.YnDIb3YzZhE)
+- `scripts/eval_df_tiny10.sh`
+- `scripts/eval_df_5000.sh`
+- `scripts/eer_df_5000.sh`
+- `scripts/eval_df_20000.sh`
+- `scripts/eer_df_20000.sh`
+- `scripts/eval_df_subset.sh`
+- `scripts/run_llm_web.sh`
+- `scripts/test_deepseek_api.sh`
 
-The In-the-Wild dataset can be downloaded from [here](https://deepfake-total.com/in_the_wild)
+这些脚本用于快速运行 10 条、5000 条、20000 条以及完整可用 DF 子集评测，并启动 DeepSeek 网页助手。
 
-For ASVspoof 2021 dataset keys (labels) and metadata are available [here](https://www.asvspoof.org/index2021.html)
+### 3. DF 协议与 key 子集
 
-## Pre-trained wav2vec 2.0 XLS-R (300M)
-Download the XLS-R models from [here](https://github.com/pytorch/fairseq/tree/main/examples/wav2vec/xlsr)
+已上传本次复现整理出的协议文件：
 
-## Training model
-To train the model run:
-```
-CUDA_VISIBLE_DEVICES=0 python main.py --track=DF --lr=0.000001 --batch_size=5 --loss=WCE  --num_epochs=50
-```
-## Testing
+- `database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.tiny10.trl.txt`
+- `database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.first5000.trl.txt`
+- `database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.first20000.trl.txt`
+- `database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.subset.trl.txt`
 
-To evaluate your own model on the DF, LA, and In-the-Wild evaluation datasets: The code below will generate three 'score.txt' files, one for each evaluation dataset, and these files will be used to compute the EER(%).
-```
-CUDA_VISIBLE_DEVICES=0 python main.py   --track=DF --is_eval --eval 
-                                        --model_path=/path/to/your/best_model.pth
-                                        --protocols_path=database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.trl.txt 
-                                        --database_path=/path/to/your/ASVspoof2021_DF_eval/ 
-                                        --eval_output=/path/to/your/scores_DF.txt
+已上传本次使用的 key/metadata：
 
-CUDA_VISIBLE_DEVICES=0 python main.py   --track=LA --is_eval --eval 
-                                        --model_path=/path/to/your/best_model.pth
-                                        --protocols_path=database/ASVspoof_DF_cm_protocols/ASVspoof2021.LA.cm.eval.trl.txt 
-                                        --database_path=/path/to/your/ASVspoof2021_LA_eval/ 
-                                        --eval_output=/path/to/your/scores_LA.txt
+- `keys/DF/`
+- `keys/DF_tiny10/`
+- `keys/DF_5000/`
+- `keys/DF_20000/`
 
-CUDA_VISIBLE_DEVICES=0 python main.py   --track=In-the-Wild --is_eval --eval 
-                                        --model_path=/path/to/your/best_model.pth
-                                        --protocols_path=database/ASVspoof_DF_cm_protocols/in_the_wild.eval.txt 
-                                        --database_path=/path/to/your/release_in_the_wild/ 
-                                        --eval_output=/path/to/your/scores_In-the-Wild.txt
-```
-We also provide a pre-trained model. To use it, you can download from [here](https://drive.google.com/drive/folders/13vw_AX1jHdYndRu1edlgpdNJpCX8OnrH?usp=sharing) and change the --model_path to our pre-trained model.
+这些文件用于计算 EER 和对齐 DF 评测样本标签。
 
-[Here](https://pan.baidu.com/s/1dj-hjvf3fFPIYdtHWqtCmg?pwd=shan) is the baidu download link.
+### 4. 复现结果
 
-### Local DF subset test
-The local workspace is configured with:
-```
-xlsr2_300m.pt
-MMpaper_model.pth
-data/ASVspoof2021_DF_eval/flac/
-database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.tiny10.trl.txt
-database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.subset.trl.txt
-```
+已上传本地评测得到的 score 文件：
 
-Run a 10-file smoke test first:
-```
-source venv/bin/activate
-bash scripts/eval_df_tiny10.sh
-```
+- `scores/scores_DF_tiny10.txt`
+- `scores/scores_DF_tiny10_random.txt`
+- `scores/scores_DF_5000.txt`
+- `scores/scores_DF_20000.txt`
+- `scores/scores_DF_subset.txt`
 
-Then run the available DF subset:
-```
-bash scripts/eval_df_subset.sh
-```
+其中当前可作为主要复现结果引用的是：
 
-Run a 5000-file subset:
-```
-bash scripts/eval_df_5000.sh
-bash scripts/eer_df_5000.sh
-```
+- DF 5000 条：EER = 1.68%
+- DF 20000 条：EER = 1.99%
 
-Run a 20000-file subset:
-```
-bash scripts/eval_df_20000.sh
-bash scripts/eer_df_20000.sh
-```
+`scores/scores_DF_subset.txt` 是完整子集运行中断后的部分结果，不建议作为正式复现结论使用。
 
-For a 4GB GPU, keep `EVAL_BATCH_SIZE=1`. If memory allows, try:
-```
-EVAL_BATCH_SIZE=2 bash scripts/eval_df_subset.sh
-```
+### 5. 复现报告与方案文档
 
-### Local LLM web assistant
+已上传中文说明文档：
 
-The project includes a lightweight DeepSeek-backed web assistant for reproduction summaries and experiment Q&A.
+- `复现报告.md`
+- `大模型接入实现方案.md`
+- `项目上传与部署说明.md`
 
-Configure `.env` first:
-```
-DEEPSEEK_API_KEY=your_deepseek_api_key_here
+其中：
+
+- `复现报告.md` 记录当前主模型复现过程、环境、数据、命令和结果；
+- `大模型接入实现方案.md` 说明如何在项目中接入大模型能力；
+- `项目上传与部署说明.md` 即当前文档，用于说明上传范围和后续依赖。
+
+### 6. DeepSeek API 接入与网页助手
+
+已上传大模型接入相关代码：
+
+- `llm/client.py`
+- `llm/prompts.py`
+- `llm/report_generator.py`
+- `analysis/score_stats.py`
+- `web_app.py`
+- `web/index.html`
+- `web/style.css`
+- `web/app.js`
+- `.env.example`
+
+网页助手当前能力包括：
+
+- 展示 DF 5000/20000 条复现统计；
+- 汇总 EER、分数分布、标签数量等信息；
+- 调用 DeepSeek API 回答复现相关问题；
+- 通过本地网页进行交互；
+- 支持端口占用时自动切换端口；
+- 支持 `PORT=7861 bash scripts/run_llm_web.sh` 手动指定端口。
+
+## 三、未上传内容
+
+以下内容没有上传到 GitHub，部署者需要自行准备。
+
+### 1. DeepSeek API Key
+
+未上传真实 `.env` 文件，也未上传真实 API key。
+
+部署者需要在项目根目录创建 `.env`：
+
+```bash
+DEEPSEEK_API_KEY=你的DeepSeek_API_Key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-flash
 ```
 
-Then run:
+原因：
+
+- API key 属于敏感凭证；
+- 当前目标仓库是公开仓库；
+- 上传真实 key 会导致泄露和被滥用风险。
+
+### 2. 主模型权重
+
+未上传：
+
+```text
+MMpaper_model.pth
 ```
+
+部署者需要自行下载或从项目组内部共享位置获取，并放到项目根目录。
+
+原因：
+
+- 文件体积约 1.3GB；
+- 不适合直接上传普通 GitHub 仓库；
+- GitHub 普通仓库对大文件有限制。
+
+### 3. XLSR/Wav2Vec 预训练模型
+
+未上传：
+
+```text
+xlsr2_300m.pt
+```
+
+部署者需要自行下载，并放到项目根目录，或在运行脚本中指定路径。
+
+原因：
+
+- 文件体积约 3.6GB；
+- 不适合直接上传 GitHub；
+- 属于外部预训练模型资源。
+
+### 4. ASVspoof 2021 DF 音频数据集
+
+未上传：
+
+```text
+data/ASVspoof2021_DF_eval/flac/
+```
+
+部署者需要自行获取 ASVspoof 2021 DF eval 音频数据，并按上述目录结构放置。
+
+原因：
+
+- 原始数据集体积很大；
+- 数据集通常有独立授权、下载渠道和使用条款；
+- 不应直接上传到公开仓库。
+
+### 5. Python 虚拟环境
+
+未上传：
+
+```text
+venv/
+```
+
+部署者需要自行创建环境并安装依赖：
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+实际部署时还需要根据 CUDA、PyTorch、显卡驱动版本选择合适的 PyTorch 安装命令。
+
+### 6. 解压后的 fairseq 源码目录
+
+未上传解压后的：
+
+```text
+fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1/
+```
+
+仓库中保留了原始压缩包：
+
+```text
+fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1.zip
+```
+
+部署者需要按 README 或本地说明解压后再运行模型。
+
+## 四、部署者复现前检查清单
+
+部署者开始复现前，应确认以下内容已经准备好：
+
+- 已安装 NVIDIA 驱动；
+- `nvidia-smi` 可正常显示显卡；
+- PyTorch 可以识别 CUDA；
+- `MMpaper_model.pth` 已放到项目根目录；
+- `xlsr2_300m.pt` 已放到项目根目录；
+- ASVspoof 2021 DF eval 音频已放到 `data/ASVspoof2021_DF_eval/flac/`；
+- `.env` 已配置 DeepSeek API key；
+- 已激活 Python 虚拟环境；
+- 已安装 `requirements.txt` 中依赖；
+- 已解压 fairseq 源码目录。
+
+## 五、常用运行命令
+
+### 1. 测试 DeepSeek API
+
+```bash
+source venv/bin/activate
+bash scripts/test_deepseek_api.sh
+```
+
+若输出：
+
+```text
+DeepSeek API 连接成功。
+```
+
+说明 API 配置可用。
+
+### 2. 启动网页助手
+
+```bash
 source venv/bin/activate
 bash scripts/run_llm_web.sh
 ```
 
-Open:
-```
+默认访问：
+
+```text
 http://127.0.0.1:7860
 ```
 
-If port 7860 is already in use, the server will automatically try the next available port and print the final URL. You can also choose a port manually:
-```
+如果端口被占用，程序会自动切换到后续端口，也可以手动指定：
+
+```bash
 PORT=7861 bash scripts/run_llm_web.sh
 ```
 
-Compute the EER(%) use three 'scores.txt' file
+### 3. 跑 20000 条 DF 复现
+
+```bash
+source venv/bin/activate
+bash scripts/eval_df_20000.sh
+bash scripts/eer_df_20000.sh
 ```
-python evaluate_2021_DF.py scores/scores_DF.txt ./keys eval
 
-python evaluate_2021_LA.py scores/scores_LA.txt ./keys eval
+当前本地结果：
 
-python evaluate_in_the_wild.py scores/scores_Wild.txt ./keys eval
-``` 
+```text
+eer: 1.99
+```
 
-## Results using pre-trained model:
-EER: 1.92 % on ASVspoof 2021 DF dataset.
-EER: 2.87 % on ASVspoof 2021 LA dataset.
-EER: 7.46 % on In-the-Wild dataset.
+### 4. 跑 5000 条 DF 复现
 
+```bash
+source venv/bin/activate
+bash scripts/eval_df_5000.sh
+bash scripts/eer_df_5000.sh
+```
 
+当前本地结果：
+
+```text
+eer: 1.68
+```
+
+## 六、注意事项
+
+1. 当前仓库上传的是可复现代码、配置脚本、评测协议、key、score 和大模型网页助手，不包含超大模型权重和原始音频数据。
+2. 真实 `.env` 不应提交到 GitHub。
+3. 若 API key 曾经暴露在聊天、日志或终端历史中，建议重新生成 key。
+4. `scores/scores_DF_subset.txt` 是中断后的部分结果，不建议作为正式实验结果。
+5. 若更换机器复现，最容易出问题的是 CUDA、PyTorch、fairseq 和音频数据路径。
+6. 4GB 显存设备建议保持 `EVAL_BATCH_SIZE=1`。
