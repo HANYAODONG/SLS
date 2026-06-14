@@ -15,7 +15,22 @@ submit_file = sys.argv[1]
 truth_dir = sys.argv[2]
 phase = sys.argv[3]
 
-cm_key_file = os.path.join(truth_dir, 'path_to_your_modified_file3.txt')
+if os.path.isfile(truth_dir):
+    cm_key_file = truth_dir
+else:
+    candidate_files = [
+        'trial_metadata.txt',
+        'in_the_wild_trial_metadata.txt',
+        'path_to_your_modified_file3.txt',
+    ]
+    cm_key_file = None
+    for candidate in candidate_files:
+        candidate_path = os.path.join(truth_dir, candidate)
+        if os.path.isfile(candidate_path):
+            cm_key_file = candidate_path
+            break
+    if cm_key_file is None:
+        cm_key_file = os.path.join(truth_dir, candidate_files[0])
 
 
 def eval_to_score_file(score_file, cm_key_file):
@@ -44,8 +59,12 @@ if __name__ == "__main__":
         print("%s doesn't exist" % (submit_file))
         exit(1)
         
-    if not os.path.isdir(truth_dir):
+    if not os.path.isdir(truth_dir) and not os.path.isfile(truth_dir):
         print("%s doesn't exist" % (truth_dir))
+        exit(1)
+        
+    if not os.path.isfile(cm_key_file):
+        print("%s doesn't exist" % (cm_key_file))
         exit(1)
 
     if phase != 'progress' and phase != 'eval' and phase != 'hidden_track':

@@ -19,6 +19,25 @@ $ cd ..
 $ pip install -r requirements.txt
 ```
 
+### Local setup used in this workspace
+This workspace has no `conda` command available, so the current reproducible environment was prepared with the existing `venv`:
+```
+unzip -n fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1.zip
+venv/bin/python -m pip install torch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1
+venv/bin/python -m pip install -r requirements.txt
+venv/bin/python -m pip install --editable ./fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1
+wget -O xlsr2_300m.pt https://dl.fbaipublicfiles.com/fairseq/wav2vec/xlsr2_300m.pt
+```
+
+Verified locally:
+```
+venv/bin/python main.py --help
+venv/bin/python -c "import fairseq; model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task(['xlsr2_300m.pt']); print(type(model[0]).__name__)"
+venv/bin/python -c "import argparse, torch; from model import Model; args=argparse.Namespace(xlsr_checkpoint='xlsr2_300m.pt'); model=Model(args,'cpu').eval(); print(tuple(model(torch.zeros(1,64600)).shape))"
+```
+
+Current machine note: `torch.cuda.is_available()` is `False` and `nvidia-smi` cannot communicate with the NVIDIA driver, so full training should be run after GPU access is fixed or on another CUDA-ready machine.
+
 
 ## Experiments
 
@@ -70,6 +89,71 @@ CUDA_VISIBLE_DEVICES=0 python main.py   --track=In-the-Wild --is_eval --eval
 We also provide a pre-trained model. To use it, you can download from [here](https://drive.google.com/drive/folders/13vw_AX1jHdYndRu1edlgpdNJpCX8OnrH?usp=sharing) and change the --model_path to our pre-trained model.
 
 [Here](https://pan.baidu.com/s/1dj-hjvf3fFPIYdtHWqtCmg?pwd=shan) is the baidu download link.
+
+### Local DF subset test
+The local workspace is configured with:
+```
+xlsr2_300m.pt
+MMpaper_model.pth
+data/ASVspoof2021_DF_eval/flac/
+database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.tiny10.trl.txt
+database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.subset.trl.txt
+```
+
+Run a 10-file smoke test first:
+```
+source venv/bin/activate
+bash scripts/eval_df_tiny10.sh
+```
+
+Then run the available DF subset:
+```
+bash scripts/eval_df_subset.sh
+```
+
+Run a 5000-file subset:
+```
+bash scripts/eval_df_5000.sh
+bash scripts/eer_df_5000.sh
+```
+
+Run a 20000-file subset:
+```
+bash scripts/eval_df_20000.sh
+bash scripts/eer_df_20000.sh
+```
+
+For a 4GB GPU, keep `EVAL_BATCH_SIZE=1`. If memory allows, try:
+```
+EVAL_BATCH_SIZE=2 bash scripts/eval_df_subset.sh
+```
+
+### Local LLM web assistant
+
+The project includes a lightweight DeepSeek-backed web assistant for reproduction summaries and experiment Q&A.
+
+Configure `.env` first:
+```
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+```
+
+Then run:
+```
+source venv/bin/activate
+bash scripts/run_llm_web.sh
+```
+
+Open:
+```
+http://127.0.0.1:7860
+```
+
+If port 7860 is already in use, the server will automatically try the next available port and print the final URL. You can also choose a port manually:
+```
+PORT=7861 bash scripts/run_llm_web.sh
+```
 
 Compute the EER(%) use three 'scores.txt' file
 ```

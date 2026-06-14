@@ -4,10 +4,23 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 import librosa
+import torchaudio
 from torch.utils.data import Dataset
 from RawBoost import ISD_additive_noise,LnL_convolutive_noise,SSI_additive_noise,normWav
 from random import randrange
 import random
+
+
+def load_audio(path, sr=16000):
+    try:
+        waveform, sample_rate = torchaudio.load(path)
+        if waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
+        if sample_rate != sr:
+            waveform = torchaudio.transforms.Resample(sample_rate, sr)(waveform)
+        return waveform.squeeze(0).numpy(), sr
+    except Exception:
+        return librosa.load(path, sr=sr)
 
 
 def genSpoof_list2019(dir_meta, is_train=False, is_eval=False):
@@ -57,6 +70,8 @@ def genSpoof_list(dir_meta, is_train=False, is_eval=False):
 
 def pad(x, max_len=64600):
     x_len = x.shape[0]
+    if x_len == 0:
+        raise ValueError("Cannot pad an empty audio signal")
     if x_len >= max_len:
         return x[:max_len]
     # need to pad
@@ -84,7 +99,7 @@ class Dataset_ASVspoof2019_train(Dataset):
 	def __getitem__(self, index):
             
             utt_id = self.list_IDs[index]
-            X,fs = librosa.load(self.base_dir+'flac/'+utt_id+'.flac', sr=16000) 
+            X,fs = load_audio(os.path.join(self.base_dir, 'flac', utt_id + '.flac'), sr=16000) 
             Y=process_Rawboost_feature(X,fs,self.args,self.algo)
             X_pad= pad(Y,self.cut)
             x_inp= Tensor(X_pad)
@@ -109,7 +124,7 @@ class Dataset_ASVspoof2021_eval(Dataset):
 	def __getitem__(self, index):
             
             utt_id = self.list_IDs[index]
-            X, fs = librosa.load(self.base_dir+'flac/'+utt_id+'.flac', sr=16000)
+            X, fs = load_audio(os.path.join(self.base_dir, 'flac', utt_id + '.flac'), sr=16000)
             X_pad = pad(X,self.cut)
             x_inp = Tensor(X_pad)
             return x_inp,utt_id
@@ -129,7 +144,7 @@ class Dataset_in_the_wild_eval(Dataset):
 
     def __getitem__(self, index):
         utt_id = self.list_IDs[index]
-        X, fs = librosa.load(self.base_dir + utt_id, sr=16000)
+        X, fs = load_audio(os.path.join(self.base_dir, utt_id), sr=16000)
         X_pad = pad(X, self.cut)
         x_inp = Tensor(X_pad)
         return x_inp, utt_id

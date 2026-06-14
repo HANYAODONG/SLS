@@ -1,0 +1,10 @@
+LA_0023 DF_E_2000011 nocodec asvspoof A14 spoof notrim progress traditional_vocoder - - - -
+TEF2 DF_E_2000013 low_m4a vcc2020 Task1-team20 spoof notrim eval neural_vocoder_nonautoregressive Task1 team20 FF E
+TGF1 DF_E_2000024 mp3m4a vcc2020 Task2-team12 spoof notrim eval traditional_vocoder Task2 team12 FF G
+LA_0043 DF_E_2000026 mp3m4a asvspoof A09 spoof notrim eval traditional_vocoder - - - -
+LA_0021 DF_E_2000027 mp3m4a asvspoof A12 spoof notrim eval neural_vocoder_autoregressive - - - -
+VCC2TM2 DF_E_2000028 low_mp3 vcc2018 SPO-N12 spoof notrim eval traditional_vocoder SPO N12 FM -
+LA_0025 DF_E_2000031 high_m4a asvspoof A10 spoof notrim eval neural_vocoder_autoregressive - - - -
+TMF1 DF_E_2000032 high_m4a vcc2020 Task2-team29 spoof notrim eval neural_vocoder_autoregressive Task2 team29 MF M
+VCC2TM1 DF_E_2000040 low_m4a vcc2018 SPO-B01 spoof notrim eval traditional_vocoder SPO B01 MM -
+VCC2TM2 DF_E_2000042 low_m4a vcc2018 HUB-N06 spoof notrim eval traditional_vocoder HUB N06 FM -

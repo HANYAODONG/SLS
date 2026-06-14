@@ -1,5 +1,6 @@
 import random
 import sys
+import os
 from typing import Union
 
 import numpy as np
@@ -10,10 +11,14 @@ from torch import Tensor
 import fairseq
 
 class SSLModel(nn.Module):
-    def __init__(self,device):
+    def __init__(self, cp_path, device):
         super(SSLModel, self).__init__()
-        
-        cp_path = 'xlsr2_300m.pt'
+        if not os.path.isfile(cp_path):
+            raise FileNotFoundError(
+                "XLS-R checkpoint not found: {}. Download xlsr2_300m.pt and "
+                "place it in the project root, or pass --xlsr_checkpoint."
+                .format(cp_path)
+            )
         model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([cp_path])
         self.model = model[0]
         self.device=device
@@ -62,7 +67,7 @@ class Model(nn.Module):
     def __init__(self, args,device):
         super().__init__()
         self.device = device
-        self.ssl_model = SSLModel(self.device)
+        self.ssl_model = SSLModel(args.xlsr_checkpoint, self.device)
         self.first_bn = nn.BatchNorm2d(num_features=1)
         self.selu = nn.SELU(inplace=True)
         self.fc0 = nn.Linear(1024, 1)

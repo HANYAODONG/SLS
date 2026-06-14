@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SLS 复现实验助手</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="header">
+      <div>
+        <h1>SLS 复现实验助手</h1>
+        <p>DeepSeek API + 本地实验统计，用于查询 DF 复现实验、生成解释和排错建议。</p>
+      </div>
+      <select id="experiment">
+        <option value="df_20000">DF 20000</option>
+        <option value="df_5000">DF 5000</option>
+      </select>
+    </section>
+
+    <section class="grid">
+      <article class="panel">
+        <h2>实验概览</h2>
+        <div id="summary" class="summary">加载中...</div>
+      </article>
+
+      <article class="panel">
+        <h2>快捷问题</h2>
+        <div class="quick">
+          <button data-question="请总结当前实验结果，说明它是否算完整复现。">总结当前实验</button>
+          <button data-question="请解释当前 EER 与仓库报告 1.92% 的关系。">对比论文结果</button>
+          <button data-question="如果我要重新运行这个实验，应该执行什么命令？">重新运行命令</button>
+          <button data-question="请指出当前结果用于报告时需要注意什么。">报告注意事项</button>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel chat">
+      <h2>向实验助手提问</h2>
+      <textarea id="question" placeholder="例如：20000条实验结果能不能作为项目组复现结果？"></textarea>
+      <div class="actions">
+        <button id="ask">发送给 DeepSeek</button>
+        <span id="status"></span>
+      </div>
+      <pre id="answer">等待提问...</pre>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

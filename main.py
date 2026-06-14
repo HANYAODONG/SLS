@@ -14,6 +14,17 @@ from core_scripts.startup_config import set_random_seed
 from tqdm import tqdm
 from torchvision import transforms
 
+
+def ensure_parent_dir(path):
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+
+def default_eval_output(track):
+    name = 'scores_Wild.txt' if track == 'In-the-Wild' else 'scores_{}.txt'.format(track)
+    return os.path.join('scores', name)
+
 def evaluate_accuracy(dev_loader, model, device):
     val_loss = 0.0
     num_correct = 0.0
@@ -41,33 +52,23 @@ def evaluate_accuracy(dev_loader, model, device):
     return val_loss, acc
 
 
-def produce_evaluation_file(dataset, model, device, save_path):
-    data_loader = DataLoader(dataset, batch_size=8, shuffle=False, drop_last=False)
-    num_correct = 0.0
-    num_total = 0.0
+def produce_evaluation_file(dataset, model, device, save_path, batch_size=8):
+    if save_path is None:
+        raise ValueError("--eval_output is required in evaluation mode")
+    ensure_parent_dir(save_path)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False)
     model.eval()
     
-    fname_list = []
-    key_list = []
-    score_list = []
-    
-    for batch_x,utt_id in tqdm(data_loader):
-        fname_list = []
-        score_list = []  
-        batch_size = batch_x.size(0)
-        batch_x = batch_x.to(device)
-        torch.set_printoptions(threshold=10_000)
-        batch_out = model(batch_x)
-        batch_score = (batch_out[:, 1]
-                       ).data.cpu().numpy().ravel() 
-        # add outputs
-        fname_list.extend(utt_id)
-        score_list.extend(batch_score.tolist())
-        
-        with open(save_path, 'a+') as fh:
-            for f, cm in zip(fname_list,score_list):
-                fh.write('{} {}\n'.format(f, cm))
-        fh.close()   
+    with open(save_path, 'w') as fh:
+        with torch.no_grad():
+            for batch_x,utt_id in tqdm(data_loader):
+                batch_x = batch_x.to(device)
+                torch.set_printoptions(threshold=10_000)
+                batch_out = model(batch_x)
+                batch_score = (batch_out[:, 1]
+                               ).data.cpu().numpy().ravel()
+                for f, cm in zip(utt_id,batch_score.tolist()):
+                    fh.write('{} {}\n'.format(f, cm))
     print('Scores saved to {}'.format(save_path))
 
 def train_epoch(train_loader, model, lr,optim, device):
@@ -94,9 +95,9 @@ def train_epoch(train_loader, model, lr,optim, device):
         
         running_loss += (batch_loss.item() * batch_size)
        
-        optimizer.zero_grad()
+        optim.zero_grad()
         batch_loss.backward()
-        optimizer.step()
+        optim.step()
        
     running_loss /= num_total
 
@@ -114,7 +115,7 @@ if __name__ == '__main__':
     %      |- ASVspoof2019_LA_dev/flac
     '''
 
-    parser.add_argument('--protocols_path', type=str, default='/path/to/your/database/', help='Change with path to user\'s DF database protocols directory address')
+    parser.add_argument('--protocols_path', type=str, default='database/', help='Protocol file for evaluation, or the repository database root for training')
     '''
     % protocols_path/
     %   |- ASVspoof_LA_cm_protocols
@@ -133,18 +134,23 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=0.000001)
     parser.add_argument('--weight_decay', type=float, default=0.0001)
     parser.add_argument('--loss', type=str, default='weighted_CCE')
+    parser.add_argument('--num_workers', type=int, default=8)
     # model
     parser.add_argument('--seed', type=int, default=1234,
                         help='random seed (default: 1234)')
     
     parser.add_argument('--model_path', type=str,
                         default=None, help='Model checkpoint')
+    parser.add_argument('--xlsr_checkpoint', type=str,
+                        default='xlsr2_300m.pt', help='Path to pretrained XLS-R 300M checkpoint')
     parser.add_argument('--comment', type=str, default=None,
                         help='Comment to describe the saved model')
     # Auxiliary arguments
     parser.add_argument('--track', type=str, default='DF',choices=['LA', 'In-the-Wild','DF'], help='LA/PA/DF')
     parser.add_argument('--eval_output', type=str, default=None,
                         help='Path to save the evaluation result')
+    parser.add_argument('--eval_batch_size', type=int, default=8,
+                        help='Batch size for evaluation score generation')
     parser.add_argument('--eval', action='store_true', default=False,
                         help='eval mode')
     parser.add_argument('--is_eval', action='store_true', default=False,help='eval database')
@@ -157,6 +163,8 @@ if __name__ == '__main__':
     parser.add_argument('--cudnn-benchmark-toggle', action='store_true', \
                         default=False, 
                         help='use cudnn-benchmark? (default false)') 
+    parser.add_argument('--disable_cudnn', action='store_true', default=False,
+                        help='Disable cuDNN. Useful when small GPUs hit CUDNN_STATUS_NOT_INITIALIZED.')
 
 
     ##===================================================Rawboost data augmentation ======================================================================#
@@ -193,7 +201,7 @@ if __name__ == '__main__':
 
     # ISD_additive_noise parameters
     parser.add_argument('--P', type=int, default=10, 
-                    help='Maximum number of uniformly distributed samples in [%].[defaul=10]')
+                    help='Maximum number of uniformly distributed samples in [%%].[defaul=10]')
     parser.add_argument('--g_sd', type=int, default=2, 
                     help='gain parameters > 0. [default=2]')
 
@@ -209,6 +217,11 @@ if __name__ == '__main__':
     if not os.path.exists('models'):
         os.mkdir('models')
     args = parser.parse_args()
+    if args.eval and args.eval_output is None:
+        args.eval_output = default_eval_output(args.track)
+    if args.disable_cudnn:
+        torch.backends.cudnn.enabled = False
+        print('cudnn enabled: False')
  
     #make experiment reproducible
     set_random_seed(args.seed, args)
@@ -240,7 +253,11 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr,weight_decay=args.weight_decay)
     
     if args.model_path:
-        model.load_state_dict(torch.load(args.model_path,map_location=device))
+        state_dict = torch.load(args.model_path,map_location='cpu')
+        model.load_state_dict(state_dict)
+        del state_dict
+        if device == 'cuda':
+            torch.cuda.empty_cache()
         print('Model loaded : {}'.format(args.model_path))
 
     # evaluation mode on the In-the-Wild dataset.
@@ -248,7 +265,7 @@ if __name__ == '__main__':
         file_eval = genSpoof_list( dir_meta =  os.path.join(args.protocols_path),is_train=False,is_eval=True)
         print('no. of eval trials',len(file_eval))
         eval_set=Dataset_in_the_wild_eval(list_IDs = file_eval,base_dir = os.path.join(args.database_path))
-        produce_evaluation_file(eval_set, model, device, args.eval_output)
+        produce_evaluation_file(eval_set, model, device, args.eval_output, args.eval_batch_size)
         sys.exit(0)
 
     # evaluation mode on the DF or LA dataset.
@@ -256,20 +273,21 @@ if __name__ == '__main__':
         file_eval = genSpoof_list(dir_meta =  os.path.join(args.protocols_path),is_train=False,is_eval=True)
         print('no. of eval trials',len(file_eval))
         eval_set=Dataset_ASVspoof2021_eval(list_IDs = file_eval,base_dir = os.path.join(args.database_path))
-        produce_evaluation_file(eval_set, model, device, args.eval_output)
+        produce_evaluation_file(eval_set, model, device, args.eval_output, args.eval_batch_size)
         sys.exit(0)
    
     
 
      
     # define train dataloader
-    d_label_trn,file_train = genSpoof_list( dir_meta =  os.path.join(args.protocols_path+'ASVspoof_DF_cm_protocols/ASVspoof2019.LA.cm.train.trn.txt'),is_train=True,is_eval=False)
+    train_protocol = os.path.join(args.protocols_path, 'ASVspoof_DF_cm_protocols', 'ASVspoof2019.LA.cm.train.trn.txt')
+    d_label_trn,file_train = genSpoof_list(dir_meta=train_protocol,is_train=True,is_eval=False)
     
     print('no. of training trials',len(file_train))
     
-    train_set=Dataset_ASVspoof2019_train(args,list_IDs = file_train,labels = d_label_trn,base_dir = os.path.join(args.database_path+'ASVspoof2019_LA_train/'),algo=args.algo)
+    train_set=Dataset_ASVspoof2019_train(args,list_IDs = file_train,labels = d_label_trn,base_dir = os.path.join(args.database_path, 'ASVspoof2019_LA_train'),algo=args.algo)
     
-    train_loader = DataLoader(train_set, batch_size=args.batch_size,num_workers=8, shuffle=True,drop_last = True)
+    train_loader = DataLoader(train_set, batch_size=args.batch_size,num_workers=args.num_workers, shuffle=True,drop_last = True)
     
     del train_set,d_label_trn
     
