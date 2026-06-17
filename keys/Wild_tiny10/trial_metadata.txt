@@ -1,0 +1,10 @@
+ITW 0.wav - - - spoof
+ITW 1.wav - - - spoof
+ITW 2.wav - - - spoof
+ITW 3.wav - - - spoof
+ITW 4.wav - - - bona-fide
+ITW 5.wav - - - bona-fide
+ITW 6.wav - - - spoof
+ITW 7.wav - - - bona-fide
+ITW 8.wav - - - bona-fide
+ITW 9.wav - - - bona-fide

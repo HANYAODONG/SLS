@@ -1,287 +1,118 @@
-# 项目上传与部署说明
+# SLS 音频深度伪造检测复现与扩展
 
-本文档用于说明当前仓库上传到 GitHub 的内容范围，以及后续复现、部署和继续开发时需要部署者自行准备的资源。
+本仓库基于 `SLSforASVspoof-2021-DF`，用于完成 SLS 主模型复现、ASVspoof 2021 DF / In-the-Wild 数据集测试，以及不改动模型结构的横向扩展功能验证。
 
-## 一、上传目标
+当前项目原则：
 
-目标仓库：
+- 不修改 `model.py` 中的主模型结构；
+- 使用原始预训练权重 `MMpaper_model.pth`；
+- 评测优先统一使用 20000 条子集；
+- 大文件数据集、模型权重、API Key 不上传 GitHub；
+- 扩展功能独立于算法层，便于后续回滚。
 
-```text
-https://github.com/HANYAODONG/SLS
-```
+## 一、队友快速部署
 
-本次上传目标是保留 SLSforASVspoof-2021-DF 主模型复现工作、DF 子集评测脚本、复现报告，以及基于 DeepSeek API 的本地交互式网页助手。
-
-## 二、已上传内容
-
-### 1. 主模型复现代码
-
-已上传并保留项目主体代码，包括：
-
-- `main.py`
-- `model.py`
-- `data_utils_SSL.py`
-- `evaluate_2021_DF.py`
-- `evaluate_2021_LA.py`
-- `evaluate_in_the_wild.py`
-- `eval_metrics_DF.py`
-- `eval_metric_LA.py`
-- `core_scripts/`
-- `wav2vec/`
-- `RawBoost.py`
-
-其中，已对 DF 评测流程做过本地复现适配，包括：
-
-- 支持自定义 `xlsr2_300m.pt` 路径；
-- 支持评测 batch size 配置；
-- 支持关闭 cuDNN 以规避本机 CUDA/cuDNN 初始化问题；
-- 优化评测输出文件写入逻辑；
-- 优化 DF keys 路径识别；
-- 支持本地 `torchaudio` 优先加载音频。
-
-### 2. 复现脚本
-
-已上传 `scripts/` 目录，包含：
-
-- `scripts/eval_df_tiny10.sh`
-- `scripts/eval_df_5000.sh`
-- `scripts/eer_df_5000.sh`
-- `scripts/eval_df_20000.sh`
-- `scripts/eer_df_20000.sh`
-- `scripts/eval_df_subset.sh`
-- `scripts/run_llm_web.sh`
-- `scripts/test_deepseek_api.sh`
-
-这些脚本用于快速运行 10 条、5000 条、20000 条以及完整可用 DF 子集评测，并启动 DeepSeek 网页助手。
-
-### 3. DF 协议与 key 子集
-
-已上传本次复现整理出的协议文件：
-
-- `database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.tiny10.trl.txt`
-- `database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.first5000.trl.txt`
-- `database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.first20000.trl.txt`
-- `database/ASVspoof_DF_cm_protocols/ASVspoof2021.DF.cm.eval.subset.trl.txt`
-
-已上传本次使用的 key/metadata：
-
-- `keys/DF/`
-- `keys/DF_tiny10/`
-- `keys/DF_5000/`
-- `keys/DF_20000/`
-
-这些文件用于计算 EER 和对齐 DF 评测样本标签。
-
-### 4. 复现结果
-
-已上传本地评测得到的 score 文件：
-
-- `scores/scores_DF_tiny10.txt`
-- `scores/scores_DF_tiny10_random.txt`
-- `scores/scores_DF_5000.txt`
-- `scores/scores_DF_20000.txt`
-- `scores/scores_DF_subset.txt`
-
-其中当前可作为主要复现结果引用的是：
-
-- DF 5000 条：EER = 1.68%
-- DF 20000 条：EER = 1.99%
-
-`scores/scores_DF_subset.txt` 是完整子集运行中断后的部分结果，不建议作为正式复现结论使用。
-
-### 5. 复现报告与方案文档
-
-已上传中文说明文档：
-
-- `复现报告.md`
-- `大模型接入实现方案.md`
-- `项目上传与部署说明.md`
-
-其中：
-
-- `复现报告.md` 记录当前主模型复现过程、环境、数据、命令和结果；
-- `大模型接入实现方案.md` 说明如何在项目中接入大模型能力；
-- `项目上传与部署说明.md` 即当前文档，用于说明上传范围和后续依赖。
-
-### 6. DeepSeek API 接入与网页助手
-
-已上传大模型接入相关代码：
-
-- `llm/client.py`
-- `llm/prompts.py`
-- `llm/report_generator.py`
-- `analysis/score_stats.py`
-- `web_app.py`
-- `web/index.html`
-- `web/style.css`
-- `web/app.js`
-- `.env.example`
-
-网页助手当前能力包括：
-
-- 展示 DF 5000/20000 条复现统计；
-- 汇总 EER、分数分布、标签数量等信息；
-- 调用 DeepSeek API 回答复现相关问题；
-- 通过本地网页进行交互；
-- 支持端口占用时自动切换端口；
-- 支持 `PORT=7861 bash scripts/run_llm_web.sh` 手动指定端口。
-
-## 三、未上传内容
-
-以下内容没有上传到 GitHub，部署者需要自行准备。
-
-### 1. DeepSeek API Key
-
-未上传真实 `.env` 文件，也未上传真实 API key。
-
-部署者需要在项目根目录创建 `.env`：
+### 1. 克隆仓库
 
 ```bash
-DEEPSEEK_API_KEY=你的DeepSeek_API_Key
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-v4-flash
+git clone https://github.com/HANYAODONG/SLS.git
+cd SLS
 ```
 
-原因：
+### 2. 创建并激活环境
 
-- API key 属于敏感凭证；
-- 当前目标仓库是公开仓库；
-- 上传真实 key 会导致泄露和被滥用风险。
+推荐使用 Python 3.10：
 
-### 2. 主模型权重
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+```
 
-未上传：
+安装主模型依赖：
+
+```bash
+pip install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1+cu113 \
+  --extra-index-url https://download.pytorch.org/whl/cu113
+pip install -r requirements.txt
+```
+
+解压并安装 fairseq：
+
+```bash
+unzip -n fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1.zip
+pip install --editable ./fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1
+```
+
+如果本机没有 CUDA，也可以先用 CPU 检查脚本，但正式跑 20000 条建议使用 GPU。
+
+### 3. 准备模型权重
+
+以下文件不在 GitHub 中，需要自行放到项目根目录：
 
 ```text
 MMpaper_model.pth
-```
-
-部署者需要自行下载或从项目组内部共享位置获取，并放到项目根目录。
-
-原因：
-
-- 文件体积约 1.3GB；
-- 不适合直接上传普通 GitHub 仓库；
-- GitHub 普通仓库对大文件有限制。
-
-### 3. XLSR/Wav2Vec 预训练模型
-
-未上传：
-
-```text
 xlsr2_300m.pt
 ```
 
-部署者需要自行下载，并放到项目根目录，或在运行脚本中指定路径。
+`xlsr2_300m.pt` 可从 fairseq XLS-R 官方地址下载：
 
-原因：
+```bash
+wget -O xlsr2_300m.pt https://dl.fbaipublicfiles.com/fairseq/wav2vec/xlsr2_300m.pt
+```
 
-- 文件体积约 3.6GB；
-- 不适合直接上传 GitHub；
-- 属于外部预训练模型资源。
+`MMpaper_model.pth` 使用项目组内部共享的原始 SLS 权重。
 
-### 4. ASVspoof 2021 DF 音频数据集
+### 4. 准备数据集
 
-未上传：
+DF 数据集放置为：
 
 ```text
 data/ASVspoof2021_DF_eval/flac/
 ```
 
-部署者需要自行获取 ASVspoof 2021 DF eval 音频数据，并按上述目录结构放置。
-
-原因：
-
-- 原始数据集体积很大；
-- 数据集通常有独立授权、下载渠道和使用条款；
-- 不应直接上传到公开仓库。
-
-### 5. Python 虚拟环境
-
-未上传：
+In-the-Wild 数据集解压为：
 
 ```text
-venv/
+release_in_the_wild/
 ```
 
-部署者需要自行创建环境并安装依赖：
+这些目录不上传 GitHub，需要本地自行准备。
 
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
+## 二、环境检查
 
-实际部署时还需要根据 CUDA、PyTorch、显卡驱动版本选择合适的 PyTorch 安装命令。
-
-### 6. 解压后的 fairseq 源码目录
-
-未上传解压后的：
-
-```text
-fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1/
-```
-
-仓库中保留了原始压缩包：
-
-```text
-fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1.zip
-```
-
-部署者需要按 README 或本地说明解压后再运行模型。
-
-## 四、部署者复现前检查清单
-
-部署者开始复现前，应确认以下内容已经准备好：
-
-- 已安装 NVIDIA 驱动；
-- `nvidia-smi` 可正常显示显卡；
-- PyTorch 可以识别 CUDA；
-- `MMpaper_model.pth` 已放到项目根目录；
-- `xlsr2_300m.pt` 已放到项目根目录；
-- ASVspoof 2021 DF eval 音频已放到 `data/ASVspoof2021_DF_eval/flac/`；
-- `.env` 已配置 DeepSeek API key；
-- 已激活 Python 虚拟环境；
-- 已安装 `requirements.txt` 中依赖；
-- 已解压 fairseq 源码目录。
-
-## 五、常用运行命令
-
-### 1. 测试 DeepSeek API
+激活环境后运行：
 
 ```bash
 source venv/bin/activate
-bash scripts/test_deepseek_api.sh
+python - <<'PY'
+import torch, torchaudio, google.protobuf
+print("torch:", torch.__version__)
+print("torchaudio:", torchaudio.__version__)
+print("protobuf:", google.protobuf.__version__)
+print("cuda:", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print(torch.cuda.get_device_name(0))
+PY
 ```
 
-若输出：
+当前主环境应保持：
 
 ```text
-DeepSeek API 连接成功。
+torch==1.12.1+cu113
+torchaudio==0.12.1+cu113
+protobuf==3.20.3
 ```
 
-说明 API 配置可用。
+不要在主 `venv` 中直接安装 WeSpeaker 或 pymilvus，它们会拉高 `torch/protobuf` 版本，可能破坏主模型复现环境。
 
-### 2. 启动网页助手
+## 三、20000 条数据集评测
 
-```bash
-source venv/bin/activate
-bash scripts/run_llm_web.sh
-```
+本项目组统一优先跑 20000 条。当前已准备好 DF 和 In-the-Wild 的 20000 条协议与 key。
 
-默认访问：
+### 1. DF 20000
 
-```text
-http://127.0.0.1:7860
-```
-
-如果端口被占用，程序会自动切换到后续端口，也可以手动指定：
-
-```bash
-PORT=7861 bash scripts/run_llm_web.sh
-```
-
-### 3. 跑 20000 条 DF 复现
+运行：
 
 ```bash
 source venv/bin/activate
@@ -289,31 +120,357 @@ bash scripts/eval_df_20000.sh
 bash scripts/eer_df_20000.sh
 ```
 
-当前本地结果：
+输出：
 
 ```text
-eer: 1.99
+scores/scores_DF_20000.txt
 ```
 
-### 4. 跑 5000 条 DF 复现
+当前本地已跑结果：
+
+```text
+EER = 1.99%
+```
+
+### 2. In-the-Wild 20000
+
+运行：
 
 ```bash
 source venv/bin/activate
-bash scripts/eval_df_5000.sh
-bash scripts/eer_df_5000.sh
+bash scripts/eval_wild_20000.sh
+bash scripts/eer_wild_20000.sh
 ```
 
-当前本地结果：
+输出：
 
 ```text
-eer: 1.68
+scores/scores_Wild_20000.txt
 ```
 
-## 六、注意事项
+当前本地已跑结果：
 
-1. 当前仓库上传的是可复现代码、配置脚本、评测协议、key、score 和大模型网页助手，不包含超大模型权重和原始音频数据。
-2. 真实 `.env` 不应提交到 GitHub。
-3. 若 API key 曾经暴露在聊天、日志或终端历史中，建议重新生成 key。
-4. `scores/scores_DF_subset.txt` 是中断后的部分结果，不建议作为正式实验结果。
-5. 若更换机器复现，最容易出问题的是 CUDA、PyTorch、fairseq 和音频数据路径。
-6. 4GB 显存设备建议保持 `EVAL_BATCH_SIZE=1`。
+```text
+EER ≈ 7.47%
+```
+
+### 3. LA 20000 可选说明
+
+仓库中保留了 LA 评测入口和原始协议文件，但当前本地没有完整整理好的 LA 20000 key 子集与本地 LA eval 音频目录。
+
+如果队友需要补跑 LA 20000，需要准备：
+
+```text
+ASVspoof2021_LA_eval/flac/
+ASVspoof2021 LA 对应官方 key / metadata
+```
+
+然后仿照 DF/Wild 生成：
+
+```text
+database/...LA.first20000...
+keys/LA_20000/...
+scores/scores_LA_20000.txt
+```
+
+本轮交付的可直接运行 20000 条脚本是：
+
+```text
+DF 20000
+In-the-Wild 20000
+```
+
+## 四、新增横向扩展功能
+
+新增功能不改变主模型，只在工程层扩展：
+
+- 视频音画分离；
+- Whisper ASR 转写；
+- 文本风险审计；
+- WeSpeaker 声纹注册与匹配；
+- VLM 图像审计接口；
+- 本地模拟 TSA 时间戳存证；
+- DeepSeek 综合风险报告；
+- 高风险样本清单导出。
+
+相关入口：
+
+```text
+extension_audit.py
+extensions/
+scripts/check_extension_deps.sh
+scripts/preprocess_video_demo.sh
+scripts/certify_file_demo.sh
+scripts/risk_wild_20000.sh
+```
+
+### 1. 检查扩展依赖
+
+```bash
+bash scripts/check_extension_deps.sh
+```
+
+理想状态：
+
+```text
+[ok] command: ffmpeg
+[ok] command: ffprobe
+[ok] python fallback: imageio_ffmpeg
+[missing] python module: wespeaker
+[ok] speaker env module: wespeaker (venv_speaker/bin/python)
+[ok] python module: whisper
+[missing] python module: pymilvus
+```
+
+说明：
+
+- 主 `venv` 中 `wespeaker` missing 是正常的；
+- WeSpeaker 应通过 `venv_speaker` 隔离环境使用；
+- pymilvus 当前不启用，小规模声纹库用 JSONL 代替。
+
+### 2. 安装扩展依赖
+
+主环境可安装：
+
+```bash
+source venv/bin/activate
+pip install -r requirements-extensions.txt
+```
+
+系统 FFmpeg：
+
+```bash
+sudo apt-get update
+sudo apt-get install ffmpeg
+```
+
+WeSpeaker 隔离环境：
+
+```bash
+bash scripts/setup_speaker_env.sh
+```
+
+不要在主 `venv` 中运行：
+
+```bash
+pip install git+https://github.com/wenet-e2e/wespeaker.git
+pip install pymilvus
+```
+
+### 3. 视频音画分离
+
+队友准备：
+
+```text
+samples/video/demo_video.mp4
+```
+
+运行：
+
+```bash
+CASE_ID=demo_video bash scripts/preprocess_video_demo.sh samples/video/demo_video.mp4
+```
+
+输出：
+
+```text
+artifacts/audit/demo_video/audio.wav
+artifacts/audit/demo_video/frames/
+artifacts/audit/demo_video/preprocess.json
+```
+
+### 4. Whisper ASR
+
+运行：
+
+```bash
+venv/bin/python extension_audit.py asr \
+  --audio artifacts/audit/demo_video/audio.wav \
+  --model-name base \
+  --output artifacts/audit/demo_video/asr.json
+```
+
+第一次运行可能下载 Whisper 模型权重。
+
+### 5. 文本风险审计
+
+需要 `.env` 中配置 DeepSeek：
+
+```text
+DEEPSEEK_API_KEY=your_key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+```
+
+运行：
+
+```bash
+venv/bin/python extension_audit.py audit-text \
+  --text-file samples/text/demo_transcript.txt \
+  --output artifacts/audit/demo_video/text_audit.json
+```
+
+### 6. 声纹注册与匹配
+
+注册：
+
+```bash
+SPEAKER_PYTHON=venv_speaker/bin/python \
+venv/bin/python extension_audit.py enroll-speaker \
+  --name "target_speaker" \
+  --audio samples/speaker/enroll/target_clean.wav \
+  --enrollment artifacts/speaker/enrollment.jsonl
+```
+
+匹配：
+
+```bash
+SPEAKER_PYTHON=venv_speaker/bin/python \
+venv/bin/python extension_audit.py match-speaker \
+  --audio samples/speaker/query/query_same.wav \
+  --enrollment artifacts/speaker/enrollment.jsonl
+```
+
+### 7. VLM 图像审计
+
+需要额外准备支持图片输入的 VLM API：
+
+```text
+VLM_BASE_URL
+VLM_API_KEY
+VLM_MODEL
+```
+
+运行：
+
+```bash
+VLM_BASE_URL="https://your-vlm-endpoint/v1" \
+VLM_API_KEY="your_vlm_key" \
+VLM_MODEL="your_vision_model" \
+venv/bin/python extension_audit.py audit-image \
+  --image samples/images/frame_public_person.jpg \
+  --output artifacts/audit/demo_video/frame_audit.json
+```
+
+### 8. 本地模拟存证
+
+```bash
+bash scripts/certify_file_demo.sh artifacts/audit/demo_video/audio.wav
+```
+
+输出：
+
+```text
+artifacts/audit/demo_case/timestamp.json
+```
+
+说明：当前是 `local_simulation`，用于项目演示，不等价于正式法律 TSA 证书。
+
+### 9. 综合风险报告
+
+```bash
+venv/bin/python extension_audit.py report \
+  --input samples/audit_payload/demo_payload.json \
+  --output artifacts/audit/demo_video/final_report.json
+```
+
+## 五、样本收集交付
+
+交给队友的数据收集文件：
+
+```text
+样本数据收集清单.md
+```
+
+部署和验证说明文件：
+
+```text
+扩展依赖安装与验证清单.md
+```
+
+综合说明文件：
+
+```text
+实现说明.md
+```
+
+建议队友收集目录：
+
+```text
+samples/
+  video/
+    demo_video.mp4
+  text/
+    demo_transcript.txt
+  speaker/
+    enroll/
+      target_clean.wav
+    query/
+      query_same.wav
+      query_other.wav
+  images/
+    frame_public_person.jpg
+    frame_normal_scene.jpg
+  audio/
+    real_demo.wav
+    fake_demo.wav
+  audit_payload/
+    demo_payload.json
+```
+
+`samples/` 不建议上传 GitHub。
+
+## 六、网页助手
+
+配置 `.env`：
+
+```text
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+```
+
+启动：
+
+```bash
+source venv/bin/activate
+bash scripts/run_llm_web.sh
+```
+
+打开：
+
+```text
+http://127.0.0.1:7860
+```
+
+如果端口占用，程序会自动切换，也可以手动指定：
+
+```bash
+PORT=7861 bash scripts/run_llm_web.sh
+```
+
+## 七、重要注意事项
+
+- `.env` 不要上传 GitHub；
+- `MMpaper_model.pth` 不要上传 GitHub；
+- `xlsr2_300m.pt` 不要上传 GitHub；
+- `data/`、`release_in_the_wild/`、`samples/` 不要上传 GitHub；
+- 不要在主 `venv` 中安装 WeSpeaker 或 pymilvus；
+- 如果主模型环境被破坏，优先检查 `torch/torchaudio/protobuf` 版本；
+- 当前主模型复现结果以 DF 20000 和 In-the-Wild 20000 为主。
+
+## 八、当前结果参考
+
+```text
+DF 20000: EER = 1.99%
+In-the-Wild 20000: EER ≈ 7.47%
+```
+
+完整复现和扩展过程见：
+
+```text
+复现报告.md
+实现说明.md
+扩展依赖安装与验证清单.md
+样本数据收集清单.md
+```

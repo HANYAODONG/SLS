@@ -1,0 +1,4 @@
+# Optional isolated speaker-verification environment.
+# Do not install this file into the main SLS venv because WeSpeaker currently
+# pulls torch>=2/torchaudio>=2 and can break the reproduced SLS environment.
+git+https://github.com/wenet-e2e/wespeaker.git

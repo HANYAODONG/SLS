@@ -25,7 +25,7 @@ async function loadSummary() {
     return;
   }
   const dist = data.score_distribution || {};
-  summaryEl.innerHTML = [
+  const metrics = [
     metric("实验", data.name),
     metric("EER", `${fmt(data.eer_percent)}%`),
     metric("score 行数", data.num_scores),
@@ -33,8 +33,11 @@ async function loadSummary() {
     metric("eval spoof", (data.label_counts_phase || {}).spoof || 0),
     metric("eval bonafide", (data.label_counts_phase || {}).bonafide || 0),
     metric("score 均值", fmt(dist.mean, 4)),
-    metric("仓库完整 DF EER", `${fmt(data.reported_full_df_eer)}%`),
-  ].join("");
+  ];
+  if (data.reported_full_df_eer !== undefined) {
+    metrics.push(metric("仓库完整 DF EER", `${fmt(data.reported_full_df_eer)}%`));
+  }
+  summaryEl.innerHTML = metrics.join("");
 }
 
 async function ask(question) {

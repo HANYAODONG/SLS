@@ -33,6 +33,22 @@ EXPERIMENTS = {
         "command": "bash scripts/eval_df_5000.sh && bash scripts/eer_df_5000.sh",
         "reported_full_df_eer": 1.92,
     },
+    "wild_20000": {
+        "name": "In-the-Wild first20000",
+        "score": "scores/scores_Wild_20000.txt",
+        "metadata": "keys/Wild_20000/trial_metadata.txt",
+        "protocol": "database/ASVspoof_DF_cm_protocols/in_the_wild.first20000.eval.txt",
+        "phase": "eval",
+        "command": "bash scripts/eval_wild_20000.sh && bash scripts/eer_wild_20000.sh",
+    },
+    "wild_tiny10": {
+        "name": "In-the-Wild tiny10",
+        "score": "scores/scores_Wild_tiny10.txt",
+        "metadata": "keys/Wild_tiny10/trial_metadata.txt",
+        "protocol": "database/ASVspoof_DF_cm_protocols/in_the_wild.tiny10.eval.txt",
+        "phase": "eval",
+        "command": "bash scripts/eval_wild_tiny10.sh && bash scripts/eer_wild_tiny10.sh",
+    },
 }
 
 
@@ -67,10 +83,11 @@ def get_experiment_summary(experiment_id):
             "name": config["name"],
             "protocol": config["protocol"],
             "command": config["command"],
-            "reported_full_df_eer": config["reported_full_df_eer"],
             "is_subset": True,
         }
     )
+    if "reported_full_df_eer" in config:
+        stats["reported_full_df_eer"] = config["reported_full_df_eer"]
     return stats
 
 

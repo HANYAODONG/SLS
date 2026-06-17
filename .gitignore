@@ -1,11 +1,15 @@
 fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1/
 venv/
+venv_speaker/
 data/
 models/
 logs/
 .env
 artifacts/
 reports/
+samples/
+/release_in_the_wild/
+/release_in_the_wild.zip
 *.pt
 *.pth
 *.tar.gz

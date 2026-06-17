@@ -68,21 +68,49 @@ def percentile(values, q):
     return ordered[lower] * (1 - weight) + ordered[upper] * weight
 
 
+def normalize_label(label):
+    if label == "bona-fide":
+        return "bonafide"
+    return label
+
+
+def row_utt_id(row):
+    if len(row) > 1:
+        return row[1]
+    return row[0]
+
+
+def row_label(row):
+    if len(row) > 5:
+        return normalize_label(row[5])
+    return normalize_label(row[-1])
+
+
+def row_phase(row):
+    if len(row) > 7:
+        return row[7]
+    return "all"
+
+
 def compute_df_stats(score_path, metadata_path, phase="eval", experiment=None):
     score_path = Path(score_path)
     metadata_path = Path(metadata_path)
     scores = read_scores(score_path)
     metadata_rows = read_metadata(metadata_path)
 
-    phase_rows = [row for row in metadata_rows if len(row) > 7 and row[7] == phase]
+    has_phase_column = any(len(row) > 7 for row in metadata_rows)
+    phase_rows = [
+        row for row in metadata_rows
+        if (row_phase(row) == phase if has_phase_column else True)
+    ]
     phase_scores = []
     bonafide_scores = []
     spoof_scores = []
     missing_score_ids = []
 
     for row in phase_rows:
-        utt_id = row[1]
-        label = row[5]
+        utt_id = row_utt_id(row)
+        label = row_label(row)
         if utt_id not in scores:
             missing_score_ids.append(utt_id)
             continue
@@ -117,9 +145,9 @@ def compute_df_stats(score_path, metadata_path, phase="eval", experiment=None):
         "num_phase_rows": len(phase_rows),
         "num_scored_phase_rows": len(phase_scores),
         "unique_score_ids": len(scores),
-        "phase_counts": dict(Counter(row[7] for row in metadata_rows if len(row) > 7)),
-        "label_counts_total": dict(Counter(row[5] for row in metadata_rows if len(row) > 5)),
-        "label_counts_phase": dict(Counter(row[5] for row in phase_rows if len(row) > 5)),
+        "phase_counts": dict(Counter(row_phase(row) for row in metadata_rows)),
+        "label_counts_total": dict(Counter(row_label(row) for row in metadata_rows)),
+        "label_counts_phase": dict(Counter(row_label(row) for row in phase_rows)),
         "missing_score_count": len(missing_score_ids),
         "missing_score_examples": missing_score_ids[:10],
         "eer_percent": eer,

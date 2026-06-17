@@ -1,0 +1,23 @@
+# Optional dependencies for horizontal product-style extensions.
+# The core SLS reproduction does not require these packages.
+#
+# System dependency:
+#   ffmpeg
+# Python fallback for FFmpeg binary discovery:
+imageio-ffmpeg
+#
+# Speaker verification:
+# WeSpeaker's current GitHub install path pulls torch>=2 and torchaudio>=2,
+# which conflicts with the reproduced SLS environment using torch==1.12.1+cu113.
+# Install WeSpeaker in a separate service environment if speaker verification
+# is needed.
+# git+https://github.com/wenet-e2e/wespeaker.git
+#
+# ASR:
+openai-whisper
+#
+# Optional vector database for larger enrollment sets:
+# pymilvus is intentionally not installed in the core venv because current
+# releases require protobuf>=5, while this project pins protobuf==3.20.3 for
+# fairseq/SLS compatibility. Install Milvus support in a separate service env.
+# pymilvus
