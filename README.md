@@ -1,476 +1,391 @@
-# SLS 音频深度伪造检测复现与扩展
+# 实现说明
 
-本仓库基于 `SLSforASVspoof-2021-DF`，用于完成 SLS 主模型复现、ASVspoof 2021 DF / In-the-Wild 数据集测试，以及不改动模型结构的横向扩展功能验证。
+> 如果后续项目组决定弃用算法创新方案、暂不训练 hybrid 模型，优先阅读 `创新实验复原文档.md`。该文档说明了如何保留实验文件但回到原 SLS 稳定复现主线，以及如何删除或通过 Git 回退本轮新增的实验性文件。
 
-当前项目原则：
+本文档记录当前项目在原 SLS 主模型复现基础上的创新改进实现情况。当前版本参考了三个方案文档，并将模型结构创新以“并列实验线”的方式接入，避免影响原始复现主线。
 
-- 不修改 `model.py` 中的主模型结构；
-- 使用原始预训练权重 `MMpaper_model.pth`；
-- 评测优先统一使用 20000 条子集；
-- 大文件数据集、模型权重、API Key 不上传 GitHub；
-- 扩展功能独立于算法层，便于后续回滚。
+## 一、参考文档
 
-## 一、队友快速部署
+本轮创新改进参考以下三个文档：
 
-### 1. 克隆仓库
+```text
+创新实现一(1).pdf
+时间注意力改进实现二_可执行版.md
+深度伪造语音检测作品实现过程.md
+```
+
+三个文档对应的方向分别是：
+
+1. `创新实现一(1).pdf`
+
+   提出“统计感知的层级、特征、时间三级门控网络”，核心包括：
+
+   - Mean+Std 统计感知 SLS；
+   - SwiGLU 特征门控；
+   - 时间注意力池化；
+   - 消融实验和权重可视化。
+
+2. `时间注意力改进实现二_可执行版.md`
+
+   提出在 SLS 后端加入：
+
+   - 普通时间注意力；
+   - 通道引导时间注意力；
+   - 可切换 pooling 类型；
+   - 独立实验模型文件；
+   - 训练和评估脚本。
+
+3. `深度伪造语音检测作品实现过程.md`
+
+   提出横向应用扩展，包括：
+
+   - 视频音画分离；
+   - Whisper ASR；
+   - WeSpeaker 声纹识别；
+   - VLM 图像审计；
+   - LLM 风险报告；
+   - 证据固化和时间戳。
+
+## 二、当前实现原则
+
+由于本项目已经完成原 SLS 主模型复现，且原始权重 `MMpaper_model.pth` 对应的是旧模型结构，本轮改动采用隔离策略：
+
+- 原 `model.py` 不修改；
+- 原 `main.py` 不修改；
+- 原评测脚本不修改；
+- 新模型结构放入 `model_hybrid.py`；
+- 新训练入口放入 `main_hybrid.py`；
+- 训练脚本以 `scripts/train_hybrid_*.sh` 命名；
+- 评测脚本以 `scripts/eval_hybrid_*.sh` 命名；
+- 若后续不训练，可直接继续使用原主线。
+
+这样既能把老师建议的模型创新先做上去，也不会破坏当前已经复现成功的稳定版本。
+
+## 三、已完成的模型结构创新
+
+### 3.1 Mean+Std 统计感知 SLS
+
+新增文件：
+
+```text
+model_hybrid.py
+```
+
+新增类：
+
+```text
+StatisticalSLS
+```
+
+功能：
+
+- 输入 XLS-R 多层隐藏特征 `[B, L, T, D]`；
+- 对每一层计算时间维度上的均值；
+- 可选计算标准差；
+- 拼接为 `[mean, std]` 统计向量；
+- 通过 MLP 预测每一层权重；
+- 对 24 层特征加权求和，得到 `[B, T, D]`。
+
+对应开关：
 
 ```bash
-git clone https://github.com/HANYAODONG/SLS.git
-cd SLS
+--use_stat_sls 1
+--stat_sls_use_std 1
 ```
 
-### 2. 创建并激活环境
-
-推荐使用 Python 3.10：
+消融时可以关闭：
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
+--use_stat_sls 0
 ```
 
-安装主模型依赖：
+关闭后使用原 SLS 的均值池化层权重逻辑。
+
+### 3.2 SwiGLU 特征门控
+
+新增类：
+
+```text
+SwiGLUGate
+```
+
+功能：
+
+- 输入层融合后的 `[B, T, D]` 特征；
+- 使用 `SiLU(Wg x) * Wv x` 做维度门控；
+- 输出仍为 `[B, T, D]`；
+- 使用残差连接保持训练稳定。
+
+对应开关：
 
 ```bash
-pip install torch==1.12.1+cu113 torchvision==0.13.1+cu113 torchaudio==0.12.1+cu113 \
-  --extra-index-url https://download.pytorch.org/whl/cu113
-pip install -r requirements.txt
+--use_swiglu 1
 ```
 
-解压并安装 fairseq：
+关闭方式：
 
 ```bash
-unzip -n fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1.zip
-pip install --editable ./fairseq-a54021305d6b3c4c5959ac9395135f63202db8f1
+--use_swiglu 0
 ```
 
-如果本机没有 CUDA，也可以先用 CPU 检查脚本，但正式跑 20000 条建议使用 GPU。
+### 3.3 普通时间注意力池化
 
-### 3. 准备模型权重
-
-以下文件不在 GitHub 中，需要自行放到项目根目录：
+新增类：
 
 ```text
-MMpaper_model.pth
-xlsr2_300m.pt
+TemporalAttentionPooling
 ```
 
-`xlsr2_300m.pt` 可从 fairseq XLS-R 官方地址下载：
+功能：
+
+- 输入 `[B, T, D]`；
+- 通过 MLP 计算每一帧的注意力分数；
+- softmax 得到时间权重；
+- 加权求和得到 `[B, D]`；
+- 接新的二分类头。
+
+对应开关：
 
 ```bash
-wget -O xlsr2_300m.pt https://dl.fbaipublicfiles.com/fairseq/wav2vec/xlsr2_300m.pt
+--pooling_type temporal
 ```
 
-`MMpaper_model.pth` 使用项目组内部共享的原始 SLS 权重。
+### 3.4 通道引导时间注意力
 
-### 4. 准备数据集
-
-DF 数据集放置为：
+新增类：
 
 ```text
-data/ASVspoof2021_DF_eval/flac/
+ChannelGuidedTemporalAttention
 ```
 
-In-the-Wild 数据集解压为：
+功能：
 
-```text
-release_in_the_wild/
-```
+- 计算全局通道统计信息；
+- 使用通道上下文引导时间注意力分数；
+- 可选加入统计残差；
+- 输出 `[B, D]`；
+- 接新的二分类头。
 
-这些目录不上传 GitHub，需要本地自行准备。
-
-## 二、环境检查
-
-激活环境后运行：
+对应开关：
 
 ```bash
-source venv/bin/activate
-python - <<'PY'
-import torch, torchaudio, google.protobuf
-print("torch:", torch.__version__)
-print("torchaudio:", torchaudio.__version__)
-print("protobuf:", google.protobuf.__version__)
-print("cuda:", torch.cuda.is_available())
-if torch.cuda.is_available():
-    print(torch.cuda.get_device_name(0))
-PY
+--pooling_type cgta
+--cgta_use_std 1
+--cgta_stat_residual 1
 ```
 
-当前主环境应保持：
+当前完整 hybrid 模型默认使用该方式。
+
+### 3.5 原 head 保留
+
+为了方便消融，`model_hybrid.py` 中保留了原始 SLS 后端：
 
 ```text
-torch==1.12.1+cu113
-torchaudio==0.12.1+cu113
-protobuf==3.20.3
+original_sls_fusion()
+original_head()
 ```
 
-不要在主 `venv` 中直接安装 WeSpeaker 或 pymilvus，它们会拉高 `torch/protobuf` 版本，可能破坏主模型复现环境。
-
-## 三、20000 条数据集评测
-
-本项目组统一优先跑 20000 条。当前已准备好 DF 和 In-the-Wild 的 20000 条协议与 key。
-
-### 1. DF 20000
-
-运行：
+当使用：
 
 ```bash
-source venv/bin/activate
-bash scripts/eval_df_20000.sh
-bash scripts/eer_df_20000.sh
+--pooling_type maxpool
 ```
 
-输出：
+时，模型仍走原始 `BatchNorm2d + max_pool2d + fc1 + fc3` 路径。
+
+这使得以下消融成为可能：
+
+- 只加 Mean+Std SLS；
+- 只加 SwiGLU；
+- 不加时间注意力；
+- 对比原 head 和 attention head。
+
+## 四、已新增文件清单
+
+### 4.1 模型与入口
 
 ```text
-scores/scores_DF_20000.txt
-```
-
-当前本地已跑结果：
-
-```text
-EER = 1.99%
-```
-
-### 2. In-the-Wild 20000
-
-运行：
-
-```bash
-source venv/bin/activate
-bash scripts/eval_wild_20000.sh
-bash scripts/eer_wild_20000.sh
-```
-
-输出：
-
-```text
-scores/scores_Wild_20000.txt
-```
-
-当前本地已跑结果：
-
-```text
-EER ≈ 7.47%
-```
-
-### 3. LA 20000 可选说明
-
-仓库中保留了 LA 评测入口和原始协议文件，但当前本地没有完整整理好的 LA 20000 key 子集与本地 LA eval 音频目录。
-
-如果队友需要补跑 LA 20000，需要准备：
-
-```text
-ASVspoof2021_LA_eval/flac/
-ASVspoof2021 LA 对应官方 key / metadata
-```
-
-然后仿照 DF/Wild 生成：
-
-```text
-database/...LA.first20000...
-keys/LA_20000/...
-scores/scores_LA_20000.txt
-```
-
-本轮交付的可直接运行 20000 条脚本是：
-
-```text
-DF 20000
-In-the-Wild 20000
-```
-
-## 四、新增横向扩展功能
-
-新增功能不改变主模型，只在工程层扩展：
-
-- 视频音画分离；
-- Whisper ASR 转写；
-- 文本风险审计；
-- WeSpeaker 声纹注册与匹配；
-- VLM 图像审计接口；
-- 本地模拟 TSA 时间戳存证；
-- DeepSeek 综合风险报告；
-- 高风险样本清单导出。
-
-相关入口：
-
-```text
-extension_audit.py
-extensions/
-scripts/check_extension_deps.sh
-scripts/preprocess_video_demo.sh
-scripts/certify_file_demo.sh
-scripts/risk_wild_20000.sh
-```
-
-### 1. 检查扩展依赖
-
-```bash
-bash scripts/check_extension_deps.sh
-```
-
-理想状态：
-
-```text
-[ok] command: ffmpeg
-[ok] command: ffprobe
-[ok] python fallback: imageio_ffmpeg
-[missing] python module: wespeaker
-[ok] speaker env module: wespeaker (venv_speaker/bin/python)
-[ok] python module: whisper
-[missing] python module: pymilvus
+model_hybrid.py
+main_hybrid.py
+test_hybrid_modules.py
 ```
 
 说明：
 
-- 主 `venv` 中 `wespeaker` missing 是正常的；
-- WeSpeaker 应通过 `venv_speaker` 隔离环境使用；
-- pymilvus 当前不启用，小规模声纹库用 JSONL 代替。
+- `model_hybrid.py`：hybrid 创新模型；
+- `main_hybrid.py`：hybrid 训练与评测入口；
+- `test_hybrid_modules.py`：模块级 shape 测试。
 
-### 2. 安装扩展依赖
-
-主环境可安装：
-
-```bash
-source venv/bin/activate
-pip install -r requirements-extensions.txt
-```
-
-系统 FFmpeg：
-
-```bash
-sudo apt-get update
-sudo apt-get install ffmpeg
-```
-
-WeSpeaker 隔离环境：
-
-```bash
-bash scripts/setup_speaker_env.sh
-```
-
-不要在主 `venv` 中运行：
-
-```bash
-pip install git+https://github.com/wenet-e2e/wespeaker.git
-pip install pymilvus
-```
-
-### 3. 视频音画分离
-
-队友准备：
+### 4.2 测试脚本
 
 ```text
-samples/video/demo_video.mp4
+scripts/test_hybrid_modules.sh
 ```
 
 运行：
 
 ```bash
-CASE_ID=demo_video bash scripts/preprocess_video_demo.sh samples/video/demo_video.mp4
+bash scripts/test_hybrid_modules.sh
 ```
 
-输出：
+用于确认：
+
+- `StatisticalSLS` 输出维度正确；
+- `SwiGLUGate` 输出维度正确；
+- `TemporalAttentionPooling` 权重归一化；
+- `ChannelGuidedTemporalAttention` 权重归一化。
+
+### 4.3 训练脚本
 
 ```text
-artifacts/audit/demo_video/audio.wav
-artifacts/audit/demo_video/frames/
-artifacts/audit/demo_video/preprocess.json
+scripts/train_hybrid_stat_sls.sh
+scripts/train_hybrid_swiglu.sh
+scripts/train_hybrid_temporal.sh
+scripts/train_hybrid_full.sh
 ```
 
-### 4. Whisper ASR
+对应实验：
 
-运行：
+```text
+train_hybrid_stat_sls.sh   只加 Mean+Std 统计感知 SLS
+train_hybrid_swiglu.sh     只加 SwiGLU 特征门控
+train_hybrid_temporal.sh   只加普通时间注意力
+train_hybrid_full.sh       Mean+Std + SwiGLU + CGTA 完整模型
+```
+
+默认参数：
+
+```text
+EPOCHS=10
+BATCH_SIZE=1
+EARLY_STOP_PATIENCE=3
+NUM_WORKERS=2
+```
+
+可通过环境变量覆盖，例如：
 
 ```bash
-venv/bin/python extension_audit.py asr \
-  --audio artifacts/audit/demo_video/audio.wav \
-  --model-name base \
-  --output artifacts/audit/demo_video/asr.json
+EPOCHS=3 BATCH_SIZE=1 bash scripts/train_hybrid_full.sh
 ```
 
-第一次运行可能下载 Whisper 模型权重。
-
-### 5. 文本风险审计
-
-需要 `.env` 中配置 DeepSeek：
+### 4.4 评测脚本
 
 ```text
-DEEPSEEK_API_KEY=your_key
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-v4-flash
+scripts/eval_hybrid_df_20000.sh
+scripts/eval_hybrid_wild_20000.sh
 ```
 
-运行：
+这两个脚本需要指定训练后的 checkpoint：
 
 ```bash
-venv/bin/python extension_audit.py audit-text \
-  --text-file samples/text/demo_transcript.txt \
-  --output artifacts/audit/demo_video/text_audit.json
+MODEL_PATH=models/.../best.pth bash scripts/eval_hybrid_df_20000.sh
+MODEL_PATH=models/.../best.pth bash scripts/eval_hybrid_wild_20000.sh
 ```
 
-### 6. 声纹注册与匹配
+注意：
 
-注册：
+```text
+必须使用由 main_hybrid.py 训练得到的权重。
+不能直接把 MMpaper_model.pth 当作 hybrid 的最终有效权重。
+```
+
+## 五、训练必要性说明
+
+本轮新增的结构包括：
+
+- `stat_sls.weight_predictor.*`
+- `swiglu.*`
+- `temporal_attention.*`
+- `cgta_pooling.*`
+- `hybrid_classifier.*`
+
+这些参数不存在于原始 `MMpaper_model.pth` 中。
+
+因此：
+
+- 新结构代码可以先接入；
+- 模块 shape 可以先测试；
+- 但有效实验结果必须重新训练；
+- 如果不训练，新增层只能随机初始化，不能证明创新有效。
+
+`main_hybrid.py` 支持：
 
 ```bash
-SPEAKER_PYTHON=venv_speaker/bin/python \
-venv/bin/python extension_audit.py enroll-speaker \
-  --name "target_speaker" \
-  --audio samples/speaker/enroll/target_clean.wav \
-  --enrollment artifacts/speaker/enrollment.jsonl
+--load_strict 0
 ```
 
-匹配：
+该参数只适合调试或部分加载旧权重，不适合作为正式实验结论。
+
+## 六、建议实验安排
+
+最低可展示版本：
+
+1. 保留当前原 SLS 结果作为 baseline；
+2. 跑 `train_hybrid_stat_sls.sh`；
+3. 跑 `train_hybrid_swiglu.sh`；
+4. 跑 `train_hybrid_temporal.sh`；
+5. 跑 `train_hybrid_full.sh`；
+6. 每组先跑 3 epoch，确认 loss 下降；
+7. 选择表现较好的组继续跑到 10 epoch 左右；
+8. 在 DF 20000 和 In-the-Wild 20000 上评测。
+
+建议命令：
 
 ```bash
-SPEAKER_PYTHON=venv_speaker/bin/python \
-venv/bin/python extension_audit.py match-speaker \
-  --audio samples/speaker/query/query_same.wav \
-  --enrollment artifacts/speaker/enrollment.jsonl
+bash scripts/test_hybrid_modules.sh
+EPOCHS=3 BATCH_SIZE=1 bash scripts/train_hybrid_full.sh
 ```
 
-### 7. VLM 图像审计
-
-需要额外准备支持图片输入的 VLM API：
-
-```text
-VLM_BASE_URL
-VLM_API_KEY
-VLM_MODEL
-```
-
-运行：
+训练完成后评测：
 
 ```bash
-VLM_BASE_URL="https://your-vlm-endpoint/v1" \
-VLM_API_KEY="your_vlm_key" \
-VLM_MODEL="your_vision_model" \
-venv/bin/python extension_audit.py audit-image \
-  --image samples/images/frame_public_person.jpg \
-  --output artifacts/audit/demo_video/frame_audit.json
+MODEL_PATH=models/<hybrid实验目录>/best.pth bash scripts/eval_hybrid_df_20000.sh
+python evaluate_2021_DF.py scores/scores_Hybrid_DF_20000.txt ./keys eval
+
+MODEL_PATH=models/<hybrid实验目录>/best.pth bash scripts/eval_hybrid_wild_20000.sh
+python evaluate_in_the_wild.py scores/scores_Hybrid_Wild_20000.txt ./keys eval
 ```
 
-### 8. 本地模拟存证
+## 七、横向扩展实现状态
+
+`深度伪造语音检测作品实现过程.md` 中提出的应用层扩展，当前已放在独立目录：
+
+```text
+extensions/
+extension_audit.py
+```
+
+已实现能力包括：
+
+- FFmpeg 视频音画分离；
+- Whisper ASR 适配；
+- WeSpeaker 声纹注册和匹配适配；
+- OpenAI-compatible VLM 审计接口；
+- 本地模拟 TSA 时间戳存证；
+- 多路风险报告汇总；
+- 高风险样本清单导出。
+
+这些扩展不改变主模型结构，可与原模型或 hybrid 模型评测结果并行使用。
+
+## 八、复原方案
+
+本次新增了专门的复原说明：
+
+```text
+创新实验复原文档.md
+```
+
+如果后续不进行训练，可以采用推荐方案：
+
+```text
+保留 hybrid 实验文件，但运行时只使用 main.py 和原评测脚本。
+```
+
+原主线仍然是：
 
 ```bash
-bash scripts/certify_file_demo.sh artifacts/audit/demo_video/audio.wav
+bash scripts/eval_df_20000.sh
+bash scripts/eval_wild_20000.sh
 ```
 
-输出：
-
-```text
-artifacts/audit/demo_case/timestamp.json
-```
-
-说明：当前是 `local_simulation`，用于项目演示，不等价于正式法律 TSA 证书。
-
-### 9. 综合风险报告
-
-```bash
-venv/bin/python extension_audit.py report \
-  --input samples/audit_payload/demo_payload.json \
-  --output artifacts/audit/demo_video/final_report.json
-```
-
-## 五、样本收集交付
-
-交给队友的数据收集文件：
-
-```text
-样本数据收集清单.md
-```
-
-部署和验证说明文件：
-
-```text
-扩展依赖安装与验证清单.md
-```
-
-综合说明文件：
-
-```text
-实现说明.md
-```
-
-建议队友收集目录：
-
-```text
-samples/
-  video/
-    demo_video.mp4
-  text/
-    demo_transcript.txt
-  speaker/
-    enroll/
-      target_clean.wav
-    query/
-      query_same.wav
-      query_other.wav
-  images/
-    frame_public_person.jpg
-    frame_normal_scene.jpg
-  audio/
-    real_demo.wav
-    fake_demo.wav
-  audit_payload/
-    demo_payload.json
-```
-
-`samples/` 不建议上传 GitHub。
-
-## 六、网页助手
-
-配置 `.env`：
-
-```text
-DEEPSEEK_API_KEY=your_deepseek_api_key_here
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_MODEL=deepseek-v4-flash
-```
-
-启动：
-
-```bash
-source venv/bin/activate
-bash scripts/run_llm_web.sh
-```
-
-打开：
-
-```text
-http://127.0.0.1:7860
-```
-
-如果端口占用，程序会自动切换，也可以手动指定：
-
-```bash
-PORT=7861 bash scripts/run_llm_web.sh
-```
-
-## 七、重要注意事项
-
-- `.env` 不要上传 GitHub；
-- `MMpaper_model.pth` 不要上传 GitHub；
-- `xlsr2_300m.pt` 不要上传 GitHub；
-- `data/`、`release_in_the_wild/`、`samples/` 不要上传 GitHub；
-- 不要在主 `venv` 中安装 WeSpeaker 或 pymilvus；
-- 如果主模型环境被破坏，优先检查 `torch/torchaudio/protobuf` 版本；
-- 当前主模型复现结果以 DF 20000 和 In-the-Wild 20000 为主。
-
-## 八、当前结果参考
-
-```text
-DF 20000: EER = 1.99%
-In-the-Wild 20000: EER ≈ 7.47%
-```
-
-完整复现和扩展过程见：
-
-```text
-复现报告.md
-实现说明.md
-扩展依赖安装与验证清单.md
-样本数据收集清单.md
-```
+这保证了项目可以在“创新实验线”和“稳定复现线”之间快速切换。
