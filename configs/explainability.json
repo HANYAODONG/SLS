@@ -1,0 +1,22 @@
+{
+  "sample_rate": 16000,
+  "fake_class_index": 0,
+  "time_occlusion_window": 0.5,
+  "time_occlusion_hop": 0.25,
+  "time_occlusion_modes": ["zero", "noise"],
+  "frequency_bands": [
+    [0, 1000],
+    [1000, 2000],
+    [2000, 4000],
+    [4000, 8000]
+  ],
+  "frequency_attenuation_db": -24.0,
+  "top_layer_ablation": 6,
+  "top_segments": 5,
+  "top_frequency_bands": 3,
+  "stability_tests": ["volume", "noise", "resample", "trim"],
+  "stability_noise_snr_db": 30,
+  "prototype_enabled": false,
+  "llm_provider": "template",
+  "output_language": "zh-CN"
+}

@@ -1,18 +1,26 @@
 import argparse
+import cgi
 import json
 import mimetypes
 import os
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
 from analysis.score_stats import compute_df_stats
+from analysis.joint_decision_matrix import assess_joint_risk
+from extensions.speaker import match_speaker
+from extensions.speaker_bridge import run_speaker_command
 from llm.client import LLMClient
 from llm.prompts import SYSTEM_PROMPT
+from single_audio_infer import infer_audio
 
 
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
+RECORDING_ROOT = ROOT / "samples" / "recordings"
+PROCESSED_ROOT = ROOT / "samples" / "processed"
 
 EXPERIMENTS = {
     "df_20000": {
@@ -115,6 +123,9 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/api/analyze-recording":
+            self.handle_recording_analysis()
+            return
         if parsed.path != "/api/chat":
             json_response(self, {"error": "Not found"}, status=404)
             return
@@ -148,6 +159,92 @@ class AppHandler(BaseHTTPRequestHandler):
             json_response(self, {"answer": answer, "summary": summary})
         except Exception as exc:
             json_response(self, {"error": str(exc)}, status=500)
+
+    def handle_recording_analysis(self):
+        content_type = self.headers.get("Content-Type", "")
+        if not content_type.startswith("multipart/form-data"):
+            json_response(self, {"error": "multipart/form-data is required"}, status=400)
+            return
+
+        try:
+            RECORDING_ROOT.mkdir(parents=True, exist_ok=True)
+            PROCESSED_ROOT.mkdir(parents=True, exist_ok=True)
+            form = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ={
+                    "REQUEST_METHOD": "POST",
+                    "CONTENT_TYPE": content_type,
+                    "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
+                },
+            )
+            if "audio" not in form:
+                json_response(self, {"error": "audio file is required"}, status=400)
+                return
+            item = form["audio"]
+            voice_similarity = None
+            if "voice_similarity" in form:
+                value = (form["voice_similarity"].value or "").strip()
+                if value:
+                    voice_similarity = float(value)
+            raw_name = Path(item.filename or "recording.webm").name
+            suffix = Path(raw_name).suffix or ".webm"
+            sample_id = uuid.uuid4().hex
+            saved_path = RECORDING_ROOT / "{}{}".format(sample_id, suffix)
+            with open(saved_path, "wb") as handle:
+                handle.write(item.file.read())
+
+            converted_path = PROCESSED_ROOT / "{}_16k.wav".format(sample_id)
+            result = infer_audio(
+                saved_path,
+                converted_path=converted_path,
+                model_path=os.environ.get("SLS_MODEL_PATH", "MMpaper_model.pth"),
+                xlsr_checkpoint=os.environ.get("XLSR_CHECKPOINT", "xlsr2_300m.pt"),
+            )
+            speaker_result = self.try_match_speaker(converted_path)
+            if speaker_result and voice_similarity is None:
+                voice_similarity = speaker_result["best"]["similarity"]
+            result["speaker_match"] = speaker_result
+            result["joint_decision"] = assess_joint_risk(
+                voice_similarity=voice_similarity,
+                fake_probability=result.get("probabilities", {}).get("fake_probability"),
+                voice_threshold=float(os.environ.get("JOINT_VOICE_THRESHOLD", "0.70")),
+                fake_threshold=float(os.environ.get("JOINT_FAKE_THRESHOLD", "0.50")),
+            )
+            result["sample_id"] = sample_id
+            result["original_filename"] = raw_name
+            json_response(self, result)
+        except Exception as exc:
+            json_response(self, {"error": str(exc)}, status=500)
+
+    def try_match_speaker(self, audio_path):
+        enrollment = os.environ.get("SPEAKER_ENROLLMENT")
+        if not enrollment:
+            return None
+        if not Path(enrollment).is_file():
+            return {"error": "SPEAKER_ENROLLMENT not found: {}".format(enrollment)}
+        model_name = os.environ.get("SPEAKER_MODEL_NAME", "chinese")
+        try:
+            speaker_python = os.environ.get("SPEAKER_PYTHON")
+            if speaker_python:
+                return run_speaker_command(
+                    speaker_python,
+                    [
+                        "match-speaker",
+                        "--audio",
+                        str(audio_path),
+                        "--enrollment",
+                        enrollment,
+                        "--model-name",
+                        model_name,
+                        "--top-k",
+                        "5",
+                    ],
+                )
+            best, all_scores = match_speaker(audio_path, enrollment, model_name=model_name)
+            return {"best": best, "all": all_scores[:5]}
+        except Exception as exc:
+            return {"error": str(exc)}
 
     def serve_static(self, path):
         if path == "/":

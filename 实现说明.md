@@ -2,19 +2,21 @@
 
 > 如果后续项目组决定弃用算法创新方案、暂不训练 hybrid 模型，优先阅读 `创新实验复原文档.md`。该文档说明了如何保留实验文件但回到原 SLS 稳定复现主线，以及如何删除或通过 Git 回退本轮新增的实验性文件。
 
-本文档记录当前项目在原 SLS 主模型复现基础上的创新改进实现情况。当前版本参考了三个方案文档，并将模型结构创新以“并列实验线”的方式接入，避免影响原始复现主线。
+本文档记录当前项目在原 SLS 主模型复现基础上的创新改进实现情况。当前版本参考了多个方案文档，并将模型结构创新、横向扩展和零训练可解释性能力以隔离方式接入，避免影响原始复现主线。
 
 ## 一、参考文档
 
-本轮创新改进参考以下三个文档：
+本轮创新改进参考以下文档：
 
 ```text
 创新实现一(1).pdf
 时间注意力改进实现二_可执行版.md
 深度伪造语音检测作品实现过程.md
+联合判别矩阵实现说明.md
+XLS-R_SLS_大模型可解释性零训练可执行方案(1).md
 ```
 
-三个文档对应的方向分别是：
+这些文档对应的方向分别是：
 
 1. `创新实现一(1).pdf`
 
@@ -45,6 +47,14 @@
    - VLM 图像审计；
    - LLM 风险报告；
    - 证据固化和时间戳。
+
+4. `联合判别矩阵实现说明.md`
+
+   提出将声纹相似度和伪造概率进行二维融合，输出联合风险象限和风险等级。
+
+5. `XLS-R_SLS_大模型可解释性零训练可执行方案(1).md`
+
+   提出在不重新训练、不改变 checkpoint 的前提下，通过层权重、遮挡分析、频带扰动、稳定性分析和模板/大模型报告生成结构化可解释证据。
 
 ## 二、当前实现原则
 
@@ -367,6 +377,50 @@ extension_audit.py
 
 这些扩展不改变主模型结构，可与原模型或 hybrid 模型评测结果并行使用。
 
+### 7.1 联合判别矩阵
+
+新增参考文档：
+
+```text
+联合判别矩阵实现说明.md
+```
+
+当前已将“声纹相似度 × 伪造概率”的二维联合判别矩阵作为后处理模块接入：
+
+```text
+analysis/joint_decision_matrix.py
+extension_audit.py joint-risk
+web_app.py /api/analyze-recording
+web/index.html 单条语音分析
+```
+
+实现方式：
+
+- 不修改 `model.py`；
+- 不修改 `model_hybrid.py`；
+- 不重新训练模型；
+- 将 SLS 输出的 `fake_probability` 与可选的声纹相似度融合；
+- 输出联合象限、联合风险等级和解释文本。
+
+网页端当前支持两种方式：
+
+1. 手动输入声纹相似度，用于演示联合判别矩阵；
+2. 如果服务端配置了 `SPEAKER_ENROLLMENT`，则自动调用 WeSpeaker 原声库进行声纹匹配。
+
+命令行示例：
+
+```bash
+python extension_audit.py joint-risk \
+  --voice-similarity 0.86 \
+  --fake-probability 0.92
+```
+
+示例输出为：
+
+```text
+Q2 / 高危：声纹高度匹配目标人物，且检测为 AI 合成语音。
+```
+
 ## 八、复原方案
 
 本次新增了专门的复原说明：
@@ -389,3 +443,101 @@ bash scripts/eval_wild_20000.sh
 ```
 
 这保证了项目可以在“创新实验线”和“稳定复现线”之间快速切换。
+
+## 九、零训练可解释性模块
+
+新增参考文档：
+
+```text
+XLS-R_SLS_大模型可解释性零训练可执行方案(1).md
+```
+
+当前已完成第一阶段零训练可解释性功能，新增目录和脚本：
+
+```text
+configs/explainability.json
+configs/explainability_cpu_debug.json
+explainability/
+scripts/inspect_model_output.py
+scripts/compare_original_output.py
+scripts/explain_audio.py
+```
+
+实现原则：
+
+- 不修改 `model.py`；
+- 不修改 `main.py`；
+- 不新增可训练参数；
+- 不重新训练；
+- 不改变 `MMpaper_model.pth` 的 state_dict；
+- 使用原模型输出、SLS 层权重和扰动前后分数变化生成解释证据。
+
+已实现能力：
+
+- 原始整段预测；
+- SLS 层权重导出；
+- 时间遮挡分析；
+- 平滑频带遮挡；
+- 扰动稳定性分析；
+- 结构化 `evidence.json`；
+- 固定模板中文报告；
+- 报告事实校验与限制性表述。
+
+暂缓能力：
+
+- 修改 `model.py` 内部 forward 以支持真正的归一化层遮挡；
+- 原型库与 OOD 检测；
+- Ollama 本地大模型改写。
+
+暂缓原因：
+
+```text
+当前项目已经有稳定复现主线，为避免破坏原 checkpoint 兼容性，本轮采用只读适配器 SLSModelAdapter 获取中间证据，不直接修改 model.py。
+```
+
+验证结果：
+
+```text
+hidden_states_shape = [1, 24, 201, 1024]
+fused_sequence_shape = [1, 201, 1024]
+layer_weights_shape = [24]
+fake_class_index = 0
+compare_original_output max_abs_difference = 0.0
+```
+
+示例命令：
+
+```bash
+python scripts/inspect_model_output.py \
+  --audio release_in_the_wild/0.wav \
+  --checkpoint MMpaper_model.pth \
+  --xlsr-checkpoint xlsr2_300m.pt \
+  --device cpu
+
+python scripts/compare_original_output.py \
+  --audio release_in_the_wild/0.wav \
+  --checkpoint MMpaper_model.pth \
+  --xlsr-checkpoint xlsr2_300m.pt \
+  --device cpu
+
+python scripts/explain_audio.py \
+  --audio release_in_the_wild/0.wav \
+  --checkpoint MMpaper_model.pth \
+  --xlsr-checkpoint xlsr2_300m.pt \
+  --config configs/explainability_cpu_debug.json \
+  --output-dir artifacts/reports \
+  --device cpu
+```
+
+示例输出：
+
+```text
+artifacts/reports/0_evidence.json
+artifacts/reports/0_report.txt
+```
+
+注意：
+
+```text
+报告中的时间片段、频带和层权重表示“模型输出对干预的敏感性”，不能写成真实伪造位置、具体生成器来源或司法鉴定结论。
+```

@@ -4,14 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SLS 复现实验助手</title>
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main class="shell">
     <section class="header">
       <div>
+        <div class="eyebrow">ASVspoof 复现 · 单样本检测 · LLM 报告</div>
         <h1>SLS 复现实验助手</h1>
-        <p>DeepSeek API + 本地实验统计，用于查询 DF 复现实验、生成解释和排错建议。</p>
+        <p>面向项目复现、录音检测和实验解释的一体化本地工作台。</p>
       </div>
       <select id="experiment">
         <option value="df_20000">DF 20000</option>
@@ -38,8 +39,38 @@
       </article>
     </section>
 
+    <section class="panel single-audio">
+      <div class="panel-title">
+        <h2>单条语音分析</h2>
+        <span>录制或上传音频，自动转换格式并调用 SLS 模型</span>
+      </div>
+      <div class="single-layout">
+        <div class="recorder">
+          <div class="actions">
+            <button id="start-recording">开始录制</button>
+            <button id="stop-recording" disabled>停止录制</button>
+            <label class="file-button">
+              上传音频
+              <input id="audio-file" type="file" accept="audio/*">
+            </label>
+            <button id="analyze-audio" disabled>分析单条语音</button>
+          </div>
+          <label class="voice-field">
+            <span>声纹相似度（可选，用于联合判别矩阵）</span>
+            <input id="voice-similarity" type="number" min="-1" max="1" step="0.001" placeholder="例如 0.86">
+          </label>
+          <audio id="audio-preview" controls></audio>
+          <div id="audio-status" class="muted">等待录音或上传音频。</div>
+        </div>
+        <div id="audio-result" class="result-box">暂无单条语音分析结果。</div>
+      </div>
+    </section>
+
     <section class="panel chat">
-      <h2>向实验助手提问</h2>
+      <div class="panel-title">
+        <h2>向实验助手提问</h2>
+        <span>结合当前实验统计生成解释、报告和排错建议</span>
+      </div>
       <textarea id="question" placeholder="例如：20000条实验结果能不能作为项目组复现结果？"></textarea>
       <div class="actions">
         <button id="ask">发送给 DeepSeek</button>
@@ -48,6 +79,6 @@
       <pre id="answer">等待提问...</pre>
     </section>
   </main>
-  <script src="/app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

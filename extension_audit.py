@@ -11,6 +11,7 @@ from extensions.report import generate_integrated_report, load_json
 from extensions.speaker import enroll_speaker, match_speaker
 from extensions.speaker_bridge import run_speaker_command
 from extensions.vlm import VisionAuditClient
+from analysis.joint_decision_matrix import assess_joint_risk
 
 
 def print_json(payload):
@@ -113,6 +114,19 @@ def cmd_report(args):
     print_json(generate_integrated_report(payload, output_path=args.output))
 
 
+def cmd_joint_risk(args):
+    result = assess_joint_risk(
+        voice_similarity=args.voice_similarity,
+        fake_probability=args.fake_probability,
+        voice_threshold=args.voice_threshold,
+        fake_threshold=args.fake_threshold,
+    )
+    if args.output:
+        Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print_json(result)
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description="Optional product-style audit extensions.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -168,6 +182,14 @@ def build_parser():
     report.add_argument("--input", required=True)
     report.add_argument("--output")
     report.set_defaults(func=cmd_report)
+
+    joint = subparsers.add_parser("joint-risk")
+    joint.add_argument("--voice-similarity", type=float)
+    joint.add_argument("--fake-probability", type=float, required=True)
+    joint.add_argument("--voice-threshold", type=float, default=0.70)
+    joint.add_argument("--fake-threshold", type=float, default=0.50)
+    joint.add_argument("--output")
+    joint.set_defaults(func=cmd_joint_risk)
     return parser
 
 
