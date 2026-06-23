@@ -8,6 +8,7 @@ from torch import nn
 
 from explainability.audio_utils import save_audio_16k
 from model import Model, getAttenF
+from model_hybrid import Model as HybridModel
 from single_audio_infer import load_processed_audio, pad_audio, run_ffmpeg_convert
 
 
@@ -86,3 +87,89 @@ class SLSModelAdapter:
             path = Path(tmpdir) / "variant.wav"
             save_audio_16k(audio, path)
             return self.predict_file(path)
+
+
+class HybridSLSModelAdapter(SLSModelAdapter):
+    """Adapter for trained model_hybrid.py checkpoints."""
+
+    def __init__(
+        self,
+        checkpoint,
+        xlsr_checkpoint="xlsr2_300m.pt",
+        device=None,
+        disable_cudnn=True,
+        use_stat_sls=1,
+        stat_sls_use_std=1,
+        use_swiglu=1,
+        pooling_type="cgta",
+        cgta_use_std=1,
+        cgta_stat_residual=1,
+        hybrid_hidden_dim=128,
+        hybrid_dropout=0.1,
+    ):
+        if disable_cudnn:
+            torch.backends.cudnn.enabled = False
+        self.checkpoint = str(checkpoint)
+        self.xlsr_checkpoint = str(xlsr_checkpoint)
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        args = SimpleNamespace(
+            xlsr_checkpoint=self.xlsr_checkpoint,
+            use_stat_sls=use_stat_sls,
+            stat_sls_use_std=stat_sls_use_std,
+            use_swiglu=use_swiglu,
+            pooling_type=pooling_type,
+            cgta_use_std=cgta_use_std,
+            cgta_stat_residual=cgta_stat_residual,
+            hybrid_hidden_dim=hybrid_hidden_dim,
+            hybrid_dropout=hybrid_dropout,
+        )
+        model = HybridModel(args, self.device)
+        self.model = nn.DataParallel(model).to(self.device)
+        state_dict = torch.load(self.checkpoint, map_location="cpu")
+        self.model.load_state_dict(state_dict)
+        self.model.eval()
+        del state_dict
+        if self.device == "cuda":
+            torch.cuda.empty_cache()
+
+    def details_audio(self, audio, layer_mask=None):
+        batch_x = self.tensor_from_audio(audio)
+        with torch.no_grad():
+            details = self.model.module(
+                batch_x,
+                return_details=True,
+                layer_mask=layer_mask,
+            )
+            output = details["log_probabilities"]
+            probs = torch.exp(output)
+        return {
+            "hidden_states_shape": list(details["hidden_states"].shape),
+            "fused_sequence_shape": list(details["fused_sequence"].shape),
+            "layer_weights": details["layer_weights"].detach().cpu().numpy().ravel().tolist(),
+            "effective_layer_weights": details["effective_layer_weights"].detach().cpu().numpy().ravel().tolist(),
+            "temporal_weights_shape": (
+                None if details["temporal_weights"] is None else list(details["temporal_weights"].shape)
+            ),
+            "log_probabilities": output.detach().cpu().numpy().ravel().tolist(),
+            "probabilities": probs.detach().cpu().numpy().ravel().tolist(),
+            "fake_probability": float(probs.detach().cpu().numpy().ravel()[0]),
+            "bonafide_probability": float(probs.detach().cpu().numpy().ravel()[1]),
+        }
+
+
+def build_adapter(args):
+    if getattr(args, "model_type", "original") == "hybrid":
+        return HybridSLSModelAdapter(
+            args.checkpoint,
+            xlsr_checkpoint=args.xlsr_checkpoint,
+            device=args.device,
+            use_stat_sls=args.use_stat_sls,
+            stat_sls_use_std=args.stat_sls_use_std,
+            use_swiglu=args.use_swiglu,
+            pooling_type=args.pooling_type,
+            cgta_use_std=args.cgta_use_std,
+            cgta_stat_residual=args.cgta_stat_residual,
+            hybrid_hidden_dim=args.hybrid_hidden_dim,
+            hybrid_dropout=args.hybrid_dropout,
+        )
+    return SLSModelAdapter(args.checkpoint, xlsr_checkpoint=args.xlsr_checkpoint, device=args.device)

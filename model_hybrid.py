@@ -55,6 +55,35 @@ def get_layer_features(layer_result):
     return pooled, full
 
 
+def apply_layer_mask(layer_weights, layer_mask):
+    """Mask layer weights and preserve each sample's original weight sum."""
+    if layer_mask is None:
+        return layer_weights
+    if layer_mask.dim() == 1:
+        layer_mask = layer_mask.unsqueeze(0)
+    layer_mask = layer_mask.to(device=layer_weights.device, dtype=layer_weights.dtype)
+    if layer_mask.shape[0] == 1 and layer_weights.shape[0] > 1:
+        layer_mask = layer_mask.expand(layer_weights.shape[0], -1)
+    if layer_mask.shape != layer_weights.shape:
+        raise ValueError(
+            "layer_mask shape {} does not match layer_weights shape {}".format(
+                tuple(layer_mask.shape),
+                tuple(layer_weights.shape),
+            )
+        )
+    if torch.any(layer_mask.sum(dim=1) <= 0):
+        raise ValueError("layer_mask cannot disable all layers")
+
+    masked_weights = layer_weights * layer_mask
+    original_sum = layer_weights.sum(dim=1, keepdim=True).clamp_min(1e-8)
+    masked_sum = masked_weights.sum(dim=1, keepdim=True).clamp_min(1e-8)
+    return masked_weights * (original_sum / masked_sum)
+
+
+def fuse_with_layer_weights(full_features, layer_weights):
+    return torch.sum(full_features * layer_weights.unsqueeze(2).unsqueeze(3), dim=1)
+
+
 class StatisticalSLS(nn.Module):
     """Mean+Std layer weighting for XLS-R hidden states.
 
@@ -245,9 +274,9 @@ class Model(nn.Module):
     def original_sls_fusion(self, pooled_layers, full_features):
         y0 = self.fc0(pooled_layers)
         y0 = self.sig(y0)
-        y0 = y0.view(y0.shape[0], y0.shape[1], y0.shape[2], -1)
-        fused = torch.sum(full_features * y0, dim=1)
-        return fused, y0.squeeze(2).squeeze(-1)
+        layer_weights = y0.squeeze(2).squeeze(-1)
+        fused = fuse_with_layer_weights(full_features, layer_weights)
+        return fused, layer_weights
 
     def original_head(self, fused):
         x = fused.unsqueeze(dim=1)
@@ -257,9 +286,10 @@ class Model(nn.Module):
         x = torch.flatten(x, 1)
         x = self.fc1(x)
         x = self.selu(x)
+        pooled_embedding = x
         x = self.fc3(x)
         x = self.selu(x)
-        return self.logsoftmax(x)
+        return self.logsoftmax(x), pooled_embedding
 
     def attention_head(self, fused):
         if self.pooling_type == "temporal":
@@ -279,26 +309,47 @@ class Model(nn.Module):
         self.last_channel_context = (
             channel_context.detach() if channel_context is not None else None
         )
-        return self.logsoftmax(logits)
+        return self.logsoftmax(logits), pooled
 
-    def forward(self, x):
+    def forward(self, x, return_details=False, layer_mask=None):
         _, layer_result = self.ssl_model.extract_feat(x.squeeze(-1))
         pooled_layers, full_features = get_layer_features(layer_result)
 
         if self.use_stat_sls:
-            fused, layer_weights = self.stat_sls(full_features)
+            _, layer_weights = self.stat_sls(full_features)
         else:
-            fused, layer_weights = self.original_sls_fusion(pooled_layers, full_features)
+            _, layer_weights = self.original_sls_fusion(pooled_layers, full_features)
+
+        original_layer_weights = layer_weights
+        effective_layer_weights = apply_layer_mask(layer_weights, layer_mask)
+        fused = fuse_with_layer_weights(full_features, effective_layer_weights)
 
         if self.use_swiglu:
             fused = self.swiglu(fused)
 
-        self.last_layer_weights = layer_weights.detach()
+        self.last_layer_weights = original_layer_weights.detach()
         self.last_temporal_weights = None
         self.last_channel_context = None
 
         if self.pooling_type in ("temporal", "cgta"):
-            return self.attention_head(fused)
-        if self.pooling_type == "maxpool":
-            return self.original_head(fused)
-        raise ValueError("Unsupported pooling_type: {}".format(self.pooling_type))
+            output, pooled_embedding = self.attention_head(fused)
+        elif self.pooling_type == "maxpool":
+            output, pooled_embedding = self.original_head(fused)
+        else:
+            raise ValueError("Unsupported pooling_type: {}".format(self.pooling_type))
+
+        if not return_details:
+            return output
+
+        return {
+            "logits": output,
+            "log_probabilities": output,
+            "embedding": pooled_embedding,
+            "hidden_states": full_features,
+            "fused_sequence": fused,
+            "layer_weights": original_layer_weights,
+            "effective_layer_weights": effective_layer_weights,
+            "layer_mask": layer_mask,
+            "temporal_weights": self.last_temporal_weights,
+            "channel_context": self.last_channel_context,
+        }

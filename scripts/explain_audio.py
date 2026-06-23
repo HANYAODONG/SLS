@@ -11,7 +11,7 @@ from explainability.audio_utils import load_audio_16k
 from explainability.evidence_builder import build_evidence
 from explainability.frequency_ablation import frequency_ablation
 from explainability.llm_report import template_report
-from explainability.model_adapter import SLSModelAdapter
+from explainability.model_adapter import build_adapter
 from explainability.occlusion import time_occlusion
 from explainability.stability import stability_analysis
 from explainability.validator import validate_report
@@ -19,6 +19,18 @@ from explainability.validator import validate_report
 
 def load_config(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def add_hybrid_args(parser):
+    parser.add_argument("--model-type", default="original", choices=["original", "hybrid"])
+    parser.add_argument("--use-stat-sls", type=int, default=1)
+    parser.add_argument("--stat-sls-use-std", type=int, default=1)
+    parser.add_argument("--use-swiglu", type=int, default=1)
+    parser.add_argument("--pooling-type", default="cgta", choices=["maxpool", "temporal", "cgta"])
+    parser.add_argument("--cgta-use-std", type=int, default=1)
+    parser.add_argument("--cgta-stat-residual", type=int, default=1)
+    parser.add_argument("--hybrid-hidden-dim", type=int, default=128)
+    parser.add_argument("--hybrid-dropout", type=float, default=0.1)
 
 
 def main():
@@ -29,10 +41,11 @@ def main():
     parser.add_argument("--config", default="configs/explainability.json")
     parser.add_argument("--output-dir", default="artifacts/reports")
     parser.add_argument("--device", default=None)
+    add_hybrid_args(parser)
     args = parser.parse_args()
 
     config = load_config(args.config)
-    adapter = SLSModelAdapter(args.checkpoint, xlsr_checkpoint=args.xlsr_checkpoint, device=args.device)
+    adapter = build_adapter(args)
     audio = load_audio_16k(args.audio, sample_rate=int(config.get("sample_rate", 16000)))
     prediction = adapter.predict_audio(audio)
     details = adapter.details_audio(audio)

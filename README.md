@@ -56,6 +56,8 @@ XLS-R_SLS_大模型可解释性零训练可执行方案(1).md
 
    提出在不重新训练、不改变 checkpoint 的前提下，通过层权重、遮挡分析、频带扰动、稳定性分析和模板/大模型报告生成结构化可解释证据。
 
+   注意：该方案本身不是模型结构创新，也不要求训练新权重。它解释的是“已有模型为什么给出当前分数”。后续文档中提到 hybrid checkpoint 的解释，只是把同一套解释工具扩展到未来训练出来的 hybrid 权重上，并不表示可解释性方案本身必须重新训练。
+
 ## 二、当前实现原则
 
 由于本项目已经完成原 SLS 主模型复现，且原始权重 `MMpaper_model.pth` 对应的是旧模型结构，本轮改动采用隔离策略：
@@ -278,6 +280,34 @@ NUM_WORKERS=2
 EPOCHS=3 BATCH_SIZE=1 bash scripts/train_hybrid_full.sh
 ```
 
+### 4.3.1 最终完整 hybrid 模型训练路线
+
+如果后续要展示“适用所有算法改进点之后的模型”，优先训练完整 hybrid：
+
+```bash
+source venv/bin/activate
+bash scripts/test_hybrid_modules.sh
+EPOCHS=1 BATCH_SIZE=1 NUM_WORKERS=2 bash scripts/train_hybrid_full.sh
+EPOCHS=10 BATCH_SIZE=1 NUM_WORKERS=2 bash scripts/train_hybrid_full.sh
+```
+
+完整 hybrid 默认启用：
+
+```text
+--use_stat_sls 1
+--use_swiglu 1
+--pooling_type cgta
+```
+
+训练完成后使用：
+
+```text
+models/<hybrid实验目录>/best.pth
+```
+
+这个 `best.pth` 才是完整 hybrid 模型后续评测、解释和展示用的权重文件。
+`MMpaper_model.pth` 只用于原 SLS baseline，不能当作 hybrid 最终权重。
+
 ### 4.4 评测脚本
 
 ```text
@@ -472,6 +502,26 @@ scripts/explain_audio.py
 - 不改变 `MMpaper_model.pth` 的 state_dict；
 - 使用原模型输出、SLS 层权重和扰动前后分数变化生成解释证据。
 
+这里需要区分两件事：
+
+1. **原 SLS 零训练可解释性**：直接解释 `MMpaper_model.pth`，不训练、不改 checkpoint；
+2. **hybrid 训练后可解释性**：等后续训练出 `models/.../best.pth` 后，用同一套解释脚本解释新权重。
+
+因此，“可解释性方案”本身不要求重新训练；需要重新训练的是 `model_hybrid.py` 中新增的 StatisticalSLS、SwiGLU、CGTA 等模型结构创新。
+
+考虑到项目后续计划训练 hybrid 创新模型，当前已在 `model_hybrid.py` 中加入可解释性接口：
+
+```text
+forward(x, return_details=False, layer_mask=None)
+```
+
+说明：
+
+- 默认 `return_details=False`，训练和评测输出仍为原来的 log-softmax 张量；
+- `return_details=True` 时返回 hidden states、fused sequence、embedding、layer weights、temporal weights 等中间证据；
+- `layer_mask` 用于后续层遮挡解释，遮挡后会按原始层权重总和重新归一化；
+- 该改动只影响 hybrid 实验线，不影响原 `model.py` 稳定复现线。
+
 已实现能力：
 
 - 原始整段预测；
@@ -493,6 +543,26 @@ scripts/explain_audio.py
 
 ```text
 当前项目已经有稳定复现主线，为避免破坏原 checkpoint 兼容性，本轮采用只读适配器 SLSModelAdapter 获取中间证据，不直接修改 model.py。
+```
+
+hybrid 训练完成后，可使用同一套脚本解释训练得到的新 checkpoint：
+
+```bash
+python scripts/inspect_model_output.py \
+  --model-type hybrid \
+  --audio release_in_the_wild/0.wav \
+  --checkpoint models/<hybrid实验目录>/best.pth \
+  --xlsr-checkpoint xlsr2_300m.pt \
+  --device cpu
+
+python scripts/explain_audio.py \
+  --model-type hybrid \
+  --audio release_in_the_wild/0.wav \
+  --checkpoint models/<hybrid实验目录>/best.pth \
+  --xlsr-checkpoint xlsr2_300m.pt \
+  --config configs/explainability_cpu_debug.json \
+  --output-dir artifacts/reports \
+  --device cpu
 ```
 
 验证结果：

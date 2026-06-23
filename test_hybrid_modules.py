@@ -5,6 +5,7 @@ from model_hybrid import (
     StatisticalSLS,
     SwiGLUGate,
     TemporalAttentionPooling,
+    apply_layer_mask,
 )
 
 
@@ -61,6 +62,13 @@ def main():
         torch.ones(batch_size),
         atol=1e-5,
     )
+
+    weights = torch.tensor([[0.2, 0.3, 0.5], [0.1, 0.4, 0.5]])
+    mask = torch.tensor([1.0, 0.0, 1.0])
+    masked = apply_layer_mask(weights, mask)
+    assert masked.shape == weights.shape
+    assert torch.allclose(masked.sum(dim=1), weights.sum(dim=1), atol=1e-6)
+    assert torch.all(masked[:, 1] == 0)
 
     print("All hybrid module tests passed.")
 
